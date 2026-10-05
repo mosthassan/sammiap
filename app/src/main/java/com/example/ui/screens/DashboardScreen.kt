@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.app.Activity
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,11 +21,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Money
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Receipt
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Wifi
@@ -37,6 +42,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -57,11 +64,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.model.CurrencyCode
 import com.example.core.model.Money
+import com.example.data.sync.SyncState
 import com.example.ui.components.AmountSemanticType
 import com.example.ui.components.AmountText
 import com.example.ui.components.InvariantBanner
 import com.example.ui.components.SectionHeader
 import com.example.ui.components.StatCard
+import com.example.ui.theme.BrandCyanPrimary
 import com.example.ui.theme.SemanticExpenseRed
 import com.example.ui.theme.SemanticIncomeGreen
 import com.example.ui.theme.SemanticWarningAmber
@@ -81,6 +90,10 @@ fun DashboardScreen(
     val summary by viewModel.dashboardSummary.collectAsState()
     val periodFilter by viewModel.selectedPeriodFilter.collectAsState()
     val invariantResult by viewModel.invariantResult.collectAsState()
+    val currentUser by viewModel.currentUser.collectAsState()
+    val syncState by viewModel.syncState.collectAsState()
+    val context = LocalContext.current
+    val activity = context as? Activity
 
     LazyColumn(
         modifier = modifier
@@ -97,6 +110,114 @@ fun DashboardScreen(
                 creditTotal = invariantResult?.trialBalanceCredit ?: 0L,
                 onRunCheck = { viewModel.runInvariantCheck() }
             )
+        }
+
+        // Google Account & Cloud Sync Banner
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("dashboard_cloud_sync_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    BrandCyanPrimary.copy(alpha = 0.3f)
+                )
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(BrandCyanPrimary.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CloudDone,
+                                    contentDescription = null,
+                                    tint = BrandCyanPrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "مزامنة Firebase السحابية",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = currentUser?.email ?: "mosthassan.ye@gmail.com",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = BrandCyanPrimary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        val isSyncing = syncState is SyncState.InProgress
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSyncing) BrandCyanPrimary.copy(alpha = 0.2f) else SemanticIncomeGreen.copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = if (isSyncing) "جاري الرفع..." else "سحابة نشطة",
+                                color = if (isSyncing) BrandCyanPrimary else SemanticIncomeGreen,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { viewModel.syncPushToFirebase() },
+                            colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("btn_dashboard_sync_now")
+                        ) {
+                            Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("مزامنة الآن", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                if (activity != null) {
+                                    viewModel.signInWithGoogle(activity)
+                                } else {
+                                    viewModel.signInDirectly("mosthassan.ye@gmail.com")
+                                }
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("btn_dashboard_google_login")
+                        ) {
+                            Icon(Icons.Default.AccountCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("دخول Google بنقرة", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
         }
 
         // Quick Actions Bar

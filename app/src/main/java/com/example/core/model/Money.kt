@@ -90,8 +90,10 @@ data class Money(
         fun parseFromUserInput(input: String, currency: CurrencyCode): Money? {
             val clean = input.trim()
                 .replace("،", "")
+                .replace("٬", "")
                 .replace(",", "")
                 .replace(" ", "")
+                .replace("٫", ".")
             if (clean.isEmpty()) return null
 
             // Support both western and eastern arabic digits
@@ -101,7 +103,8 @@ data class Money(
 
             val whole = parts[0].toLongOrNull() ?: return null
             val frac = if (parts.size == 2) {
-                val fracStr = parts[1].take(2).padEnd(2, '0')
+                if (parts[1].length > 2) return null // Disallow more than 2 decimal digits without warning
+                val fracStr = parts[1].padEnd(2, '0')
                 fracStr.toLongOrNull() ?: return null
             } else {
                 0L
@@ -119,7 +122,7 @@ data class Money(
                 when (ch) {
                     in '٠'..'٩' -> sb.append(ch - '٠')
                     in '0'..'9' -> sb.append(ch)
-                    '.' -> sb.append('.')
+                    '.', '٫' -> sb.append('.')
                     '-' -> sb.append('-')
                     else -> {}
                 }

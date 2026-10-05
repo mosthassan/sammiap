@@ -28,7 +28,6 @@ import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Router
@@ -57,6 +56,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -82,6 +82,14 @@ import com.example.ui.screens.PurchasesAssetsScreen
 import com.example.ui.screens.ReportsScreen
 import com.example.ui.screens.SalesScreen
 import com.example.ui.screens.VouchersScreen
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.rememberModalBottomSheetState
+import com.example.data.sync.SyncState
+import com.example.ui.screens.CloudSyncSheet
 import com.example.ui.screens.NetworkHubScreen
 import com.example.ui.theme.BrandCyanPrimary
 import com.example.ui.theme.SamMikrotikTheme
@@ -122,6 +130,11 @@ class MainActivity : ComponentActivity() {
 
                 var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
                 val invariantResult by appViewModel.invariantResult.collectAsState()
+                val syncState by appViewModel.syncState.collectAsState()
+                val currentUser by appViewModel.currentUser.collectAsState()
+
+                var showCloudSyncSheet by rememberSaveable { mutableStateOf(false) }
+                val syncSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
                 // Listen for business feedback messages
                 LaunchedEffect(appViewModel) {
@@ -141,38 +154,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     snackbarHost = { SnackbarHost(snackbarHostState) },
                     topBar = {
-                        val profile by appViewModel.currentUserProfile.collectAsState()
                         CenterAlignedTopAppBar(
-                            navigationIcon = {
-                                Surface(
-                                    color = if (profile != null) BrandCyanPrimary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
-                                    shape = RoundedCornerShape(16.dp),
-                                    modifier = Modifier
-                                        .padding(start = 12.dp)
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .clickable { selectedTabIndex = 6 /* Jump to Reports & Cloud Sync */ }
-                                        .border(1.dp, if (profile != null) BrandCyanPrimary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline, RoundedCornerShape(16.dp))
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.CloudSync,
-                                            contentDescription = null,
-                                            tint = if (profile != null) BrandCyanPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = profile?.email?.substringBefore("@") ?: "سحابة Firebase",
-                                            color = if (profile != null) BrandCyanPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp
-                                        )
-                                    }
-                                }
-                            },
                             title = {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text(
@@ -189,6 +171,23 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             actions = {
+                                IconButton(
+                                    onClick = { showCloudSyncSheet = true },
+                                    modifier = Modifier.testTag("top_bar_cloud_sync_btn")
+                                ) {
+                                    Icon(
+                                        imageVector = when (syncState) {
+                                            is SyncState.InProgress -> Icons.Default.Sync
+                                            is SyncState.Success -> Icons.Default.CloudDone
+                                            is SyncState.Error -> Icons.Default.CloudOff
+                                            else -> Icons.Default.Cloud
+                                        },
+                                        contentDescription = "المزامنة السحابية",
+                                        tint = BrandCyanPrimary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+
                                 val isBalanced = invariantResult?.isValid ?: true
                                 val badgeColor = if (isBalanced) SemanticIncomeGreen else SemanticExpenseRed
                                 Surface(
@@ -279,6 +278,14 @@ class MainActivity : ComponentActivity() {
                         6 -> ReportsScreen(viewModel = appViewModel, modifier = modifier)
                         7 -> AuditScreen(inspectorViewModel = inspectorViewModel, modifier = modifier)
                     }
+                }
+
+                if (showCloudSyncSheet) {
+                    CloudSyncSheet(
+                        viewModel = appViewModel,
+                        sheetState = syncSheetState,
+                        onDismissRequest = { showCloudSyncSheet = false }
+                    )
                 }
             }
         }

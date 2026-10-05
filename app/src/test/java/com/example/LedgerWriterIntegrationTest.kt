@@ -353,9 +353,10 @@ class LedgerWriterIntegrationTest {
             val customer = PartyEntity("CUST_CLOSED", "عميل الفترة", isCustomer = true)
             db.partyDao().insertParty(customer)
 
-            val testEpochDay = 20454L // Year 2026, Month 1
-            val year = 1970 + (testEpochDay / 365).toInt()
-            val month = 1 + ((testEpochDay % 365) / 30).toInt().coerceIn(1, 12)
+            val testDate = java.time.LocalDate.of(2026, 1, 1)
+            val testEpochDay = testDate.toEpochDay()
+            val year = testDate.year
+            val month = testDate.monthValue
 
             db.fiscalPeriodDao().insertPeriod(
                 FiscalPeriodEntity(
@@ -366,6 +367,10 @@ class LedgerWriterIntegrationTest {
                     closedAt = System.currentTimeMillis()
                 )
             )
+
+            val periodInDb = db.fiscalPeriodDao().getPeriod(year, month)
+            assertNotNull("Inserted period must exist in db", periodInDb)
+            assertTrue("Inserted period must be closed", periodInDb!!.isClosed)
 
             try {
                 writer.postSalesInvoice(

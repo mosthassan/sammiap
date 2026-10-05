@@ -135,7 +135,9 @@ class FinancialStatementsUseCase(private val db: AppDatabase) {
 
     suspend fun generateBalanceSheet(asOfDateEpochDay: Long): BalanceSheetReport {
         val rows = db.journalDao().getBalanceSheetLines(asOfDateEpochDay)
-        val incomeReport = generateIncomeStatement(startDateEpochDay = null, endDateEpochDay = asOfDateEpochDay)
+        val asOfDate = java.time.LocalDate.ofEpochDay(asOfDateEpochDay)
+        val startOfFiscalYearEpochDay = java.time.LocalDate.of(asOfDate.year, 1, 1).toEpochDay()
+        val incomeReport = generateIncomeStatement(startDateEpochDay = startOfFiscalYearEpochDay, endDateEpochDay = asOfDateEpochDay)
 
         var cashVault = 0L
         var banksWallets = 0L

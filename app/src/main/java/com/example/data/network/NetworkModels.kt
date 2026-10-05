@@ -12,12 +12,12 @@ import java.io.File
 import java.util.UUID
 
 data class NetworkConfig(
-    val networkName: String = "شبكة سام ميكروتك الذكية",
-    val ownerName: String = "المهندس سام الشبواني",
-    val location: String = "اليمن - صنعاء",
+    val networkName: String = "شبكة توزيع الإنترنت",
+    val ownerName: String = "مدير الشبكة",
+    val location: String = "المركز الرئيسي",
     val welcomeMessage: String = "أهلاً بكم في شبكتنا - إنترنت فائق السرعة",
-    val supportPhone: String = "777000111",
-    val supportWhatsapp: String = "967777000111",
+    val supportPhone: String = "770000000",
+    val supportWhatsapp: String = "967770000000",
     val mainRouterModel: String = "MikroTik CCR2004-16G-2S+",
     val routerOsVersion: String = "v7.16",
     val hotspotDomain: String = "login.net",
@@ -85,12 +85,12 @@ class NetworkRepository(private val context: Context) {
             if (configFile.exists()) {
                 val json = JSONObject(configFile.readText())
                 NetworkConfig(
-                    networkName = json.optString("networkName", "شبكة سام ميكروتك الذكية"),
-                    ownerName = json.optString("ownerName", "المهندس سام الشبواني"),
-                    location = json.optString("location", "اليمن - صنعاء"),
+                    networkName = json.optString("networkName", "شبكة توزيع الإنترنت"),
+                    ownerName = json.optString("ownerName", "مدير الشبكة"),
+                    location = json.optString("location", "المركز الرئيسي"),
                     welcomeMessage = json.optString("welcomeMessage", "أهلاً بكم في شبكتنا - إنترنت فائق السرعة"),
-                    supportPhone = json.optString("supportPhone", "777000111"),
-                    supportWhatsapp = json.optString("supportWhatsapp", "967777000111"),
+                    supportPhone = json.optString("supportPhone", "770000000"),
+                    supportWhatsapp = json.optString("supportWhatsapp", "967770000000"),
                     mainRouterModel = json.optString("mainRouterModel", "MikroTik CCR2004-16G-2S+"),
                     routerOsVersion = json.optString("routerOsVersion", "v7.16"),
                     hotspotDomain = json.optString("hotspotDomain", "login.net"),

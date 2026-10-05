@@ -158,8 +158,12 @@ internal interface JournalDao {
                COALESCE(SUM(jl.baseCreditMinor), 0) AS totalCreditMinor,
                a.isDebitNormal AS isDebitNormal
         FROM accounts a
-        LEFT JOIN journal_lines jl ON a.code = jl.accountCode
-        LEFT JOIN journal_entries je ON jl.entryId = je.id AND (:asOfDateEpochDay IS NULL OR je.entryDateEpochDay <= :asOfDateEpochDay)
+        LEFT JOIN (
+            SELECT jl_inner.accountCode, jl_inner.baseDebitMinor, jl_inner.baseCreditMinor
+            FROM journal_lines jl_inner
+            INNER JOIN journal_entries je_inner ON jl_inner.entryId = je_inner.id
+            WHERE (:asOfDateEpochDay IS NULL OR je_inner.entryDateEpochDay <= :asOfDateEpochDay)
+        ) jl ON a.code = jl.accountCode
         WHERE (a.code LIKE '1%' OR a.code LIKE '2%' OR a.code LIKE '3%')
         GROUP BY a.code, a.name, a.type, a.isDebitNormal
         ORDER BY a.code ASC
@@ -392,6 +396,9 @@ interface AssetDao {
     @Query("SELECT * FROM assets WHERE isDisposed = 0 ORDER BY purchaseDateEpochDay DESC")
     fun getAllActiveAssetsFlow(): Flow<List<AssetEntity>>
 
+    @Query("SELECT * FROM assets WHERE isDisposed = 0 ORDER BY purchaseDateEpochDay DESC")
+    suspend fun getAllActiveAssetsSync(): List<AssetEntity>
+
     @Query("SELECT * FROM assets ORDER BY purchaseDateEpochDay DESC")
     suspend fun getAllAssetsSync(): List<AssetEntity>
 
@@ -457,6 +464,9 @@ interface NumberSequenceDao {
     @Query("SELECT * FROM number_sequences WHERE docType = :docType AND fiscalYear = :fiscalYear")
     suspend fun getSequence(docType: String, fiscalYear: Int): NumberSequenceEntity?
 
+    @Query("SELECT * FROM number_sequences")
+    suspend fun getAllSequencesSync(): List<NumberSequenceEntity>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertSequence(sequence: NumberSequenceEntity)
 
@@ -477,6 +487,9 @@ interface CurrencyRateDao {
 
     @Query("SELECT * FROM currency_rates")
     fun getAllRatesFlow(): Flow<List<CurrencyRateEntity>>
+
+    @Query("SELECT * FROM currency_rates")
+    suspend fun getAllRatesSync(): List<CurrencyRateEntity>
 }
 
 @Dao

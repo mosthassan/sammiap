@@ -104,10 +104,10 @@ dependencies {
   // implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
-  // Firestore:
+  // Firestore for cloud sync
   implementation(libs.firebase.firestore)
 
-  // Firebase Auth and Google Sign-In via Credential Manager:
+  // Firebase Auth and Google Sign-In via Credential Manager
   implementation(libs.firebase.auth)
   implementation(libs.androidx.credentials)
   implementation(libs.androidx.credentials.play.services)

@@ -19,6 +19,7 @@ import com.example.data.local.entity.AuditLogEntity
 import com.example.data.local.entity.DepreciationRunEntity
 import com.example.data.local.entity.DocumentEntity
 import com.example.data.local.entity.DocumentItemEntity
+import com.example.data.local.entity.FiscalPeriodEntity
 import com.example.data.local.entity.IdempotencyKeyEntity
 import com.example.data.local.entity.JournalEntryEntity
 import com.example.data.local.entity.JournalLineEntity
@@ -176,6 +177,33 @@ class LedgerWriter(
         validatePeriodIsOpen(dateEpochDay)
         val treasury = db.treasuryDao().getTreasuryById(treasuryId)
             ?: error("Treasury account $treasuryId not found")
+
+        // Validate allocations
+        if (allocations.isNotEmpty()) {
+            val totalAllocated = allocations.sumOf { it.allocatedOrigMinor }
+            require(totalAllocated <= amountOrigMinor) {
+                "Total allocated amount ($totalAllocated) exceeds receipt amount ($amountOrigMinor)"
+            }
+            allocations.forEach { alloc ->
+                val invDoc = db.documentDao().getDocumentById(alloc.invoiceDocId)
+                    ?: error("Allocated invoice ${alloc.invoiceDocId} not found")
+                require(invDoc.status == DocumentStatus.POSTED.name) {
+                    "Cannot allocate to unposted invoice ${invDoc.docNumber}"
+                }
+                require(invDoc.partyId == partyId) {
+                    "Allocated invoice party (${invDoc.partyId}) does not match receipt party ($partyId)"
+                }
+                require(invDoc.currency == currency.name) {
+                    "Allocated invoice currency (${invDoc.currency}) does not match receipt currency (${currency.name})"
+                }
+                val activeAllocs = db.allocationDao().getActiveAllocationsForInvoice(alloc.invoiceDocId)
+                val previouslyAllocated = activeAllocs.sumOf { it.allocatedOrigMinor }
+                val remainingInvoiceBalance = invDoc.totalMinor - previouslyAllocated
+                require(alloc.allocatedOrigMinor <= remainingInvoiceBalance) {
+                    "Allocated amount (${alloc.allocatedOrigMinor}) exceeds remaining invoice balance ($remainingInvoiceBalance)"
+                }
+            }
+        }
 
         val docNumber = allocateNextDocNumber(DocumentType.RECEIPT_VOUCHER.name, fiscalYear)
         val docId = UuidUtils.newTimeOrderedId()
@@ -514,6 +542,33 @@ class LedgerWriter(
         val treasury = db.treasuryDao().getTreasuryById(treasuryId)
             ?: error("Treasury account $treasuryId not found")
 
+        // Validate vendor allocations
+        if (invoiceAllocations.isNotEmpty()) {
+            val totalAllocated = invoiceAllocations.sumOf { it.allocatedOrigMinor }
+            require(totalAllocated <= amountOrigMinor) {
+                "Total allocated amount ($totalAllocated) exceeds payment amount ($amountOrigMinor)"
+            }
+            invoiceAllocations.forEach { alloc ->
+                val invDoc = db.documentDao().getDocumentById(alloc.invoiceDocId)
+                    ?: error("Allocated purchase invoice ${alloc.invoiceDocId} not found")
+                require(invDoc.status == DocumentStatus.POSTED.name) {
+                    "Cannot allocate to unposted purchase invoice ${invDoc.docNumber}"
+                }
+                require(invDoc.partyId == recipientPartyId) {
+                    "Allocated purchase invoice party (${invDoc.partyId}) does not match vendor ($recipientPartyId)"
+                }
+                require(invDoc.currency == currency.name) {
+                    "Allocated purchase invoice currency (${invDoc.currency}) does not match payment currency (${currency.name})"
+                }
+                val activeAllocs = db.allocationDao().getActiveAllocationsForInvoice(alloc.invoiceDocId)
+                val previouslyAllocated = activeAllocs.sumOf { it.allocatedOrigMinor }
+                val remainingInvoiceBalance = invDoc.totalMinor - previouslyAllocated
+                require(alloc.allocatedOrigMinor <= remainingInvoiceBalance) {
+                    "Allocated amount (${alloc.allocatedOrigMinor}) exceeds remaining purchase invoice balance ($remainingInvoiceBalance)"
+                }
+            }
+        }
+
         val docNumber = allocateNextDocNumber(DocumentType.PAYMENT_VOUCHER.name, fiscalYear)
         val docId = UuidUtils.newTimeOrderedId()
         val totalBase = exchangeRate.convert(amountOrigMinor)
@@ -802,6 +857,32 @@ class LedgerWriter(
             }
         }
 
+        // If purchase invoice containing assets was voided, dispose assets to stop depreciation
+        if (doc.type == DocumentType.PURCHASE_INVOICE.name) {
+            val assets = db.assetDao().getAllAssetsSync().filter { it.docId == docId }
+            assets.forEach { ast ->
+                db.assetDao().setAssetDisposed(ast.id, true)
+                recordAuditLog("ASSET", ast.id, "VOID_PURCHASE", "isDisposed=false", "Disposed asset ${ast.name} due to voided purchase invoice $docId")
+            }
+        }
+
+        // If credit note was voided, reverse the stock return
+        if (doc.type == DocumentType.CREDIT_NOTE.name) {
+            val movements = db.cardPackageDao().getAllStockMovementsSync().filter { it.docId == docId && it.type == "RETURN" }
+            movements.forEach { mvt ->
+                db.cardPackageDao().insertStockMovement(
+                    StockMovementEntity(
+                        id = UuidUtils.newTimeOrderedId(),
+                        packageId = mvt.packageId,
+                        docId = docId,
+                        type = "ADJUST",
+                        quantity = -mvt.quantity,
+                        movementDateEpochDay = reversalDateEpochDay
+                    )
+                )
+            }
+        }
+
         recordAuditLog("DOCUMENT", docId, "VOID", doc.status, "Voided: $reason")
         if (enableInvariantValidation) invariants.verifyAll()
         true
@@ -985,7 +1066,7 @@ class LedgerWriter(
         require(!asset.isDisposed) { "Asset $assetId is already disposed" }
 
         val treasury = treasuryId?.let { db.treasuryDao().getTreasuryById(it) }
-        val fiscalYear = 1970 + (disposalDateEpochDay / 365).toInt()
+        val fiscalYear = java.time.LocalDate.ofEpochDay(disposalDateEpochDay).year
         val docNumber = allocateNextDocNumber("ASSET_DISPOSAL", fiscalYear)
         val docId = UuidUtils.newTimeOrderedId()
 
@@ -1188,9 +1269,23 @@ class LedgerWriter(
         db.documentDao().insertDocument(docEntity)
         persistJournalDraft(docId, docNumber, draft)
 
-        // Close the period
-        val month = 12
-        db.fiscalPeriodDao().setPeriodClosed(fiscalYear, month, isClosed = true, closedAt = System.currentTimeMillis())
+        // Close all 12 periods of the fiscal year
+        for (m in 1..12) {
+            val p = db.fiscalPeriodDao().getPeriod(fiscalYear, m)
+            if (p == null) {
+                db.fiscalPeriodDao().insertPeriod(
+                    FiscalPeriodEntity(
+                        id = "FP_${fiscalYear}_${m.toString().padStart(2, '0')}",
+                        year = fiscalYear,
+                        month = m,
+                        isClosed = true,
+                        closedAt = System.currentTimeMillis()
+                    )
+                )
+            } else {
+                db.fiscalPeriodDao().setPeriodClosed(fiscalYear, m, isClosed = true, closedAt = System.currentTimeMillis())
+            }
+        }
 
         recordAuditLog("DOCUMENT", docId, "EXECUTE_CLOSING", null, "Executed Year End Closing for $fiscalYear")
         if (enableInvariantValidation) invariants.verifyAll()
@@ -1246,10 +1341,9 @@ class LedgerWriter(
     }
 
     private suspend fun validatePeriodIsOpen(dateEpochDay: Long) {
-        // Approximate year and month from epoch day (standard calendar)
-        val daysSinceEpoch = dateEpochDay
-        val year = 1970 + (daysSinceEpoch / 365).toInt()
-        val month = 1 + ((daysSinceEpoch % 365) / 30).toInt().coerceIn(1, 12)
+        val date = java.time.LocalDate.ofEpochDay(dateEpochDay)
+        val year = date.year
+        val month = date.monthValue
 
         val period = db.fiscalPeriodDao().getPeriod(year, month)
         if (period != null && period.isClosed) {
