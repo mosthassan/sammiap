@@ -14,6 +14,7 @@ import com.example.data.local.entity.AccountEntity
 import com.example.data.local.entity.AssetEntity
 import com.example.data.local.entity.CardPackageEntity
 import com.example.data.local.entity.DocumentEntity
+import com.example.data.local.entity.DocumentItemEntity
 import com.example.data.local.entity.JournalEntryEntity
 import com.example.data.local.entity.JournalLineEntity
 import com.example.data.local.entity.OrganizationEntity
@@ -40,6 +41,10 @@ class AccountingRepository(
 
     suspend fun getLinesForEntry(entryId: String): List<JournalLineEntity> {
         return db.journalDao().getLinesForEntry(entryId)
+    }
+
+    suspend fun getItemsForDocument(docId: String): List<DocumentItemEntity> {
+        return db.documentDao().getItemsForDocument(docId)
     }
 
     suspend fun getNetBalanceForAccount(code: String): Long {

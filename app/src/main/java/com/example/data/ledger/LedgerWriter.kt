@@ -835,6 +835,43 @@ class LedgerWriter(
         val updatedDoc = doc.copy(status = DocumentStatus.VOIDED.name)
         db.documentDao().updateDocument(updatedDoc)
 
+        // If purchase invoice had linked payment vouchers (e.g. cash settlement from treasury), void them too
+        if (doc.type == DocumentType.PURCHASE_INVOICE.name) {
+            val activeAllocs = db.allocationDao().getActiveAllocationsForInvoice(docId)
+            activeAllocs.forEach { alloc ->
+                val paymentDoc = db.documentDao().getDocumentById(alloc.paymentDocId)
+                if (paymentDoc != null && paymentDoc.status == DocumentStatus.POSTED.name) {
+                    val payEntries = db.journalDao().getEntriesForDocument(paymentDoc.id)
+                    val payNormalEntry = payEntries.firstOrNull { it.type == JournalEntryType.NORMAL.name }
+                    if (payNormalEntry != null) {
+                        val payOriginalLines = db.journalDao().getLinesForEntry(payNormalEntry.id)
+                        val payDraftLines = payOriginalLines.map { line ->
+                            JournalDraftLine(
+                                lineNo = line.lineNo,
+                                accountCode = line.accountCode,
+                                partyId = line.partyId,
+                                treasuryId = line.treasuryId,
+                                origMinor = line.origMinor,
+                                currency = CurrencyCode.fromString(line.currency),
+                                exchangeRateMicros = line.exchangeRateMicros,
+                                baseDebitMinor = line.baseDebitMinor,
+                                baseCreditMinor = line.baseCreditMinor,
+                                memo = line.memo
+                            )
+                        }
+                        val payReversalDraft = PostingRules.createReversalDraft(
+                            originalLines = payDraftLines,
+                            reversalDateEpochDay = reversalDateEpochDay,
+                            reversalMemo = "قيد عكسي لسند الصرف #${paymentDoc.docNumber} لإلغاء فاتورة المشتريات #${doc.docNumber}: $reason"
+                        )
+                        persistJournalDraft(paymentDoc.id, paymentDoc.docNumber, payReversalDraft)
+                        db.documentDao().updateDocument(paymentDoc.copy(status = DocumentStatus.VOIDED.name))
+                        recordAuditLog("DOCUMENT", paymentDoc.id, "VOID", paymentDoc.status, "Voided payment voucher #${paymentDoc.docNumber} linked to voided purchase invoice #${doc.docNumber}")
+                    }
+                }
+            }
+        }
+
         // Void allocations linked to this document
         db.allocationDao().voidAllocationsForDoc(docId)
 
@@ -857,12 +894,19 @@ class LedgerWriter(
             }
         }
 
-        // If purchase invoice containing assets was voided, dispose assets to stop depreciation
+        // If purchase invoice containing assets was voided, remove un-depreciated assets or dispose them
         if (doc.type == DocumentType.PURCHASE_INVOICE.name) {
             val assets = db.assetDao().getAllAssetsSync().filter { it.docId == docId }
+            val depRuns = db.assetDao().getAllDepreciationRunsSync()
             assets.forEach { ast ->
-                db.assetDao().setAssetDisposed(ast.id, true)
-                recordAuditLog("ASSET", ast.id, "VOID_PURCHASE", "isDisposed=false", "Disposed asset ${ast.name} due to voided purchase invoice $docId")
+                val hasDepreciation = depRuns.any { it.assetId == ast.id }
+                if (!hasDepreciation) {
+                    db.assetDao().deleteAsset(ast.id)
+                    recordAuditLog("ASSET", ast.id, "DELETE_PURCHASE", "deleted=true", "Deleted un-depreciated asset ${ast.name} due to voided purchase invoice $docId")
+                } else {
+                    db.assetDao().setAssetDisposed(ast.id, true)
+                    recordAuditLog("ASSET", ast.id, "VOID_PURCHASE", "isDisposed=false", "Disposed asset ${ast.name} due to voided purchase invoice $docId")
+                }
             }
         }
 

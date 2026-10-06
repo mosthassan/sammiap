@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -73,6 +74,7 @@ import com.example.data.ledger.PurchaseItemSpec
 import com.example.data.local.AppDatabase
 import com.example.data.local.entity.AssetEntity
 import com.example.data.local.entity.DocumentEntity
+import com.example.data.local.entity.DocumentItemEntity
 import com.example.ui.components.AmountSemanticType
 import com.example.ui.components.AmountText
 import com.example.ui.components.SectionHeader
@@ -98,6 +100,11 @@ fun PurchasesAssetsScreen(
     var selectedAssetForDeprecate by remember { mutableStateOf<AssetEntity?>(null) }
     var selectedAssetForDisposal by remember { mutableStateOf<AssetEntity?>(null) }
     var disposalProceedsText by remember { mutableStateOf("0") }
+    var selectedInvoiceForDetail by remember { mutableStateOf<DocumentEntity?>(null) }
+    var invoiceToVoid by remember { mutableStateOf<DocumentEntity?>(null) }
+    var voidReason by remember { mutableStateOf("فاتورة مكررة / خطأ في الإدخال") }
+    var invoiceItemsForDetail by remember { mutableStateOf<List<DocumentItemEntity>>(emptyList()) }
+    var invoiceFilter by remember { mutableStateOf("ALL") }
 
     val partyMap = remember(parties) { parties.associateBy { it.id } }
     val purchaseInvoices = remember(documents) { documents.filter { it.type == "PURCHASE_INVOICE" } }
@@ -167,21 +174,72 @@ fun PurchasesAssetsScreen(
             Spacer(modifier = Modifier.height(10.dp))
 
             if (selectedTab == 0) {
+                val filteredInvoices = remember(purchaseInvoices, invoiceFilter) {
+                    when (invoiceFilter) {
+                        "ACTIVE" -> purchaseInvoices.filter { it.status != "VOIDED" }
+                        "VOIDED" -> purchaseInvoices.filter { it.status == "VOIDED" }
+                        else -> purchaseInvoices
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = invoiceFilter == "ALL",
+                        onClick = { invoiceFilter = "ALL" },
+                        label = { Text("الكل (${purchaseInvoices.size})", fontSize = 12.sp) }
+                    )
+                    FilterChip(
+                        selected = invoiceFilter == "ACTIVE",
+                        onClick = { invoiceFilter = "ACTIVE" },
+                        label = { Text("سارية (${purchaseInvoices.count { it.status != "VOIDED" }})", fontSize = 12.sp) }
+                    )
+                    FilterChip(
+                        selected = invoiceFilter == "VOIDED",
+                        onClick = { invoiceFilter = "VOIDED" },
+                        label = { Text("ملغية (${purchaseInvoices.count { it.status == "VOIDED" }})", fontSize = 12.sp) }
+                    )
+                }
+
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
-                    if (purchaseInvoices.isEmpty()) {
+                    if (filteredInvoices.isEmpty()) {
                         item {
                             Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
-                                Text("لا توجد فواتير مشتريات مسجلة")
+                                Text(
+                                    if (invoiceFilter == "VOIDED") "لا توجد فواتير مشتريات ملغية"
+                                    else if (invoiceFilter == "ACTIVE") "لا توجد فواتير مشتريات سارية"
+                                    else "لا توجد فواتير مشتريات مسجلة"
+                                )
                             }
                         }
                     }
 
-                    items(purchaseInvoices) { inv ->
+                    items(filteredInvoices) { inv ->
                         val vendorName = partyMap[inv.partyId]?.name ?: "مورد عام"
+                        val isVoided = inv.status == "VOIDED"
                         Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
+                            onClick = {
+                                selectedInvoiceForDetail = inv
+                                viewModel.getDocumentItems(inv.id) { items ->
+                                    invoiceItemsForDetail = items
+                                }
+                            },
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isVoided)
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(
+                                    1.dp,
+                                    if (isVoided) SemanticExpenseRed.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline,
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .testTag("purchase_card_${inv.docNumber}")
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -195,13 +253,31 @@ fun PurchasesAssetsScreen(
                                         StatusChip(status = inv.status)
                                     }
                                     Text("المورد: $vendorName", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-                                    if (inv.notes.isNotBlank()) Text(inv.notes, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    if (inv.notes.isNotBlank()) {
+                                        Text(inv.notes, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = if (isVoided) "ملغية بقيد عكسي (تمت استعادة الأرصدة وإلغاء الأجهزة) ✕" else "اضغط لعرض التفاصيل أو إلغاء الفاتورة 🔍",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (isVoided) SemanticExpenseRed else MikroTikCyan
+                                    )
                                 }
-                                AmountText(
-                                    money = Money(inv.totalMinor, CurrencyCode.fromString(inv.currency)),
-                                    semanticType = AmountSemanticType.EXPENSE,
-                                    fontSize = 14
-                                )
+                                Column(horizontalAlignment = Alignment.End) {
+                                    AmountText(
+                                        money = Money(inv.totalMinor, CurrencyCode.fromString(inv.currency)),
+                                        semanticType = if (isVoided) AmountSemanticType.NEUTRAL else AmountSemanticType.EXPENSE,
+                                        fontSize = 14
+                                    )
+                                    if (inv.currency != CurrencyCode.FUNCTIONAL.name) {
+                                        Text(
+                                            "المعادل: ${Money(inv.totalBaseMinor, CurrencyCode.FUNCTIONAL).format()}",
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -378,6 +454,191 @@ fun PurchasesAssetsScreen(
                 )
             },
             onDismissRequest = { editingDraft = null }
+        )
+    }
+
+    // Invoice Detail Dialog
+    selectedInvoiceForDetail?.let { inv ->
+        val vendorName = partyMap[inv.partyId]?.name ?: "مورد عام"
+        val curr = CurrencyCode.fromString(inv.currency)
+        val isVoided = inv.status == "VOIDED"
+        AlertDialog(
+            onDismissRequest = { selectedInvoiceForDetail = null },
+            title = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("فاتورة مشتريات #${inv.docNumber}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    StatusChip(status = inv.status)
+                }
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("المورد:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(vendorName, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("إجمالي الفاتورة:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(Money(inv.totalMinor, curr).format(), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                            if (inv.currency != CurrencyCode.FUNCTIONAL.name) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("المعادل بالريال اليمني:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(Money(inv.totalBaseMinor, CurrencyCode.FUNCTIONAL).format(), fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                }
+                            }
+                            if (inv.notes.isNotBlank()) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("البيان والملاحظات:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(inv.notes, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+
+                    if (invoiceItemsForDetail.isNotEmpty()) {
+                        Text("الأصناف والأجهزة المسجلة بالفاتورة:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            invoiceItemsForDetail.forEach { itm ->
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(itm.description.ifBlank { "بند مشتريات" }, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                            Text("الكمية: ${itm.quantity} × ${Money(itm.unitPriceMinor, curr).format()}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            if (itm.isAsset) {
+                                                Text("أصل شبكة ثابت (حساب 1501)", fontSize = 10.sp, color = MikroTikCyan, fontWeight = FontWeight.Medium)
+                                            }
+                                        }
+                                        Text(Money(itm.totalMinor, curr).format(), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (isVoided) {
+                        Surface(
+                            color = SemanticExpenseRed.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Delete, contentDescription = null, tint = SemanticExpenseRed, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    "الفاتورة ملغية بقيد عكسي. تمت استعادة أرصدة المورد/الصندوق وتم استبعاد أجهزة الشبكة المرتبطة بها تلقائياً.",
+                                    fontSize = 11.sp,
+                                    color = SemanticExpenseRed
+                                )
+                            }
+                        }
+                    } else {
+                        HorizontalDivider()
+                        OutlinedButton(
+                            onClick = {
+                                invoiceToVoid = inv
+                                selectedInvoiceForDetail = null
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = SemanticExpenseRed),
+                            border = BorderStroke(1.dp, SemanticExpenseRed.copy(alpha = 0.7f)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth().testTag("btn_void_purchase_invoice")
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("إلغاء / حذف الفاتورة بقيد عكسي (Void Invoice)", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { selectedInvoiceForDetail = null }) {
+                    Text("إغلاق")
+                }
+            }
+        )
+    }
+
+    // Void Purchase Confirmation Dialog
+    invoiceToVoid?.let { inv ->
+        AlertDialog(
+            onDismissRequest = { invoiceToVoid = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Delete, contentDescription = null, tint = SemanticExpenseRed)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("تأكيد إلغاء الفاتورة #${inv.docNumber}", color = SemanticExpenseRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "وفق معايير المحاسبة الدولية (IFRS) والضبط المالي السليم:",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("الأثر التلقائي للإلغاء:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MikroTikCyan)
+                            Text("1. عكس القيد المحاسبي: يتم ترحيل قيد يومية عكسي تعويضي فوري يعيد أرصدة المورد أو الصندوق وحساب الأصول إلى وضعها الصحيح تلقائياً قبل تسجيل الفاتورة.", fontSize = 11.sp)
+                            Text("2. إلغاء معدات الشبكة: يتم استبعاد وحذف أي أجهزة تم إنشاؤها بهذه الفاتورة تلقائياً من تبويب سجل الأصول لمنع تكرارها أو احتساب إهلاك لها.", fontSize = 11.sp)
+                            Text("3. تصنيف الفاتورة كـ ملغية (VOIDED) لمنع أي تكرار مستقبلي.", fontSize = 11.sp)
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = voidReason,
+                        onValueChange = { voidReason = it },
+                        label = { Text("سبب الإلغاء (إلزامي)") },
+                        modifier = Modifier.fillMaxWidth().testTag("input_void_reason")
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (voidReason.isNotBlank()) {
+                            viewModel.voidDocument(inv.id, voidReason) {
+                                invoiceToVoid = null
+                                voidReason = "فاتورة مكررة / خطأ في الإدخال"
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = SemanticExpenseRed),
+                    modifier = Modifier.testTag("btn_confirm_void_purchase")
+                ) {
+                    Text("تأكيد الإلغاء وعكس الأرصدة والأصول")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { invoiceToVoid = null }) {
+                    Text("تراجع")
+                }
+            }
         )
     }
 }

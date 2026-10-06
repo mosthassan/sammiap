@@ -9,11 +9,15 @@ import com.example.core.model.CurrencyCode
 import com.example.core.model.ExchangeRate
 import com.example.core.model.Money
 import com.example.data.auth.AuthManager
+import com.example.data.auth.GoogleAuthManager
+import com.example.data.auth.UserProfile
 import com.example.data.auth.UserSession
+import com.example.data.sync.FirebaseSyncManager
 import com.example.data.sync.FirestoreSyncManager
 import com.example.data.sync.SyncLogItem
 import com.example.data.sync.SyncMetadata
 import com.example.data.sync.SyncState
+import com.example.data.sync.SyncStatus
 import com.example.data.ledger.InvariantCheckResult
 import com.example.data.ledger.InvoiceAllocationSpec
 import com.example.data.ledger.PaymentVoucherType
@@ -91,10 +95,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     // Auth & Firebase Sync
     val authManager = AuthManager(application)
     val syncManager = FirestoreSyncManager(application, db, backupRestoreUseCase)
+    val googleAuthManager = GoogleAuthManager(application)
+    val firebaseSyncManager = FirebaseSyncManager(application, db)
 
     val currentUser: StateFlow<UserSession?> = authManager.currentUser
     val authError: StateFlow<String?> = authManager.authError
     val isAuthLoading: StateFlow<Boolean> = authManager.isLoading
+
+    val currentUserProfile: StateFlow<UserProfile?> = googleAuthManager.userProfile
+    val syncStatus: StateFlow<SyncStatus> = firebaseSyncManager.syncStatus
+    val lastSyncTimestamp: StateFlow<String?> = firebaseSyncManager.lastSyncTimestamp
+    val autoSyncEnabled: StateFlow<Boolean> = firebaseSyncManager.autoSyncEnabled
 
     val syncState: StateFlow<SyncState> = syncManager.syncState
     val syncMetadata: StateFlow<SyncMetadata?> = syncManager.syncMetadata
@@ -671,6 +682,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun getDocumentItems(docId: String, onResult: (List<DocumentItemEntity>) -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val items = db.documentDao().getItemsForDocument(docId)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onResult(items)
+            }
+        }
+    }
+
     fun receiveCardStock(packageId: String, quantity: Int, notes: String, onSuccess: () -> Unit) {
         viewModelScope.launch {
             try {
@@ -974,6 +994,67 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 runInvariantCheck()
             } else {
                 _userMessage.emit(res.exceptionOrNull()?.localizedMessage ?: "فشل استعادة البيانات السحابية")
+            }
+        }
+    }
+
+    fun setAutoSync(enabled: Boolean) {
+        firebaseSyncManager.setAutoSync(enabled)
+    }
+
+    fun signInWithGoogleOneTap(context: android.content.Context) {
+        viewModelScope.launch {
+            val res = googleAuthManager.signInWithGoogleOneTap(context)
+            if (res.isSuccess) {
+                val profile = res.getOrNull()
+                _userMessage.emit("تم تسجيل الدخول بنجاح بحساب Google: ${profile?.email}")
+            } else {
+                val err = res.exceptionOrNull()?.localizedMessage ?: "فشل تسجيل الدخول عبر Google"
+                _userMessage.emit(err)
+            }
+        }
+    }
+
+    fun signInDirectWithEmail(email: String, displayName: String = "") {
+        googleAuthManager.signInDirectWithEmail(email, displayName)
+        signInDirectly(email, displayName)
+    }
+
+    fun signOutGoogle() {
+        viewModelScope.launch {
+            googleAuthManager.signOut()
+            authManager.signOut()
+            _userMessage.emit("تم تسجيل الخروج بنجاح")
+        }
+    }
+
+    fun performCloudSync() {
+        val email = currentUserProfile.value?.email ?: currentUser.value?.email ?: "mosthassan.ye@gmail.com"
+        viewModelScope.launch {
+            val res = firebaseSyncManager.performFullSync(email)
+            if (res.isSuccess) {
+                val count = res.getOrNull() ?: 0
+                _userMessage.emit("اكتملت المزامنة السحابية بنجاح ($count سجل)")
+                refreshDashboard()
+            } else {
+                val err = res.exceptionOrNull()?.localizedMessage ?: "فشلت المزامنة السحابية"
+                _userMessage.emit(err)
+            }
+        }
+    }
+
+    fun performCloudPull() {
+        val email = currentUserProfile.value?.email ?: currentUser.value?.email ?: "mosthassan.ye@gmail.com"
+        viewModelScope.launch {
+            val res = firebaseSyncManager.pullDataFromCloud(email)
+            if (res.isSuccess) {
+                val count = res.getOrNull() ?: 0
+                _userMessage.emit("تم جلب البيانات من السحاب بنجاح ($count سجل)")
+                refreshDashboard()
+                runInvariantCheck()
+            } else {
+                val err = res.exceptionOrNull()?.localizedMessage ?: "فشل جلب البيانات السحابية"
+                _userMessage.emit(err)
             }
         }
     }

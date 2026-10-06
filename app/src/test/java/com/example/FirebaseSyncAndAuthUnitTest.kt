@@ -27,7 +27,7 @@ class FirebaseSyncAndAuthUnitTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
-        db = AppDatabase.getInMemoryDatabaseForTesting(context)
+        db = AppDatabase.createInMemory(context)
         authManager = GoogleAuthManager(context)
         syncManager = FirebaseSyncManager(context, db)
     }

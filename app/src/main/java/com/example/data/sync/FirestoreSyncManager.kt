@@ -50,6 +50,12 @@ class FirestoreSyncManager(
         }
     }
 
+    fun sanitizeTenantEmail(email: String): String {
+        return email.trim().lowercase()
+            .replace(".", "_")
+            .replace("@", "_at_")
+    }
+
     private fun sanitizeEmail(email: String): String {
         return email.trim().lowercase().replace("/", "_")
     }
