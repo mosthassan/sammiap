@@ -75,6 +75,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.network.DeviceSaveResult
 import com.example.data.network.DeviceStatus
 import com.example.data.network.DeviceType
 import com.example.data.network.NetworkConfig
@@ -89,6 +90,7 @@ import com.example.ui.theme.CyberDarkSurface
 import com.example.ui.theme.MikroTikCyan
 import com.example.ui.theme.MikroTikNavy
 import com.example.ui.theme.MikroTikPrimary
+import com.example.ui.theme.SemanticExpenseRed
 import com.example.ui.theme.StatusOffline
 import com.example.ui.theme.StatusOnline
 import com.example.ui.theme.StatusWarning
@@ -213,11 +215,24 @@ fun NetworkHubScreen(
     if (isAddingDevice || deviceToEdit != null) {
         DeviceEditDialog(
             device = deviceToEdit,
+            existingDevices = devices,
             onSave = { savedDevice ->
                 scope.launch {
-                    networkRepository.addOrUpdateDevice(savedDevice)
-                    isAddingDevice = false
-                    deviceToEdit = null
+                    val result = networkRepository.addOrUpdateDevice(savedDevice)
+                    when (result) {
+                        is DeviceSaveResult.Success -> {
+                            isAddingDevice = false
+                            deviceToEdit = null
+                            Toast.makeText(context, "تم حفظ الجهاز '${savedDevice.name}' بنجاح", Toast.LENGTH_SHORT).show()
+                        }
+                        is DeviceSaveResult.IpConflict -> {
+                            Toast.makeText(
+                                context,
+                                "تعذر الحفظ: الآي بي مستخدم مسبقاً للجهاز '${result.conflictingDevice.name}' بموقع '${result.conflictingDevice.towerLocation}'",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
                 }
             },
             onDismiss = {
@@ -867,20 +882,26 @@ private fun HubTextField(
     label: String,
     value: String,
     onValueChange: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isError: Boolean = false,
+    supportingText: @Composable (() -> Unit)? = null
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label, fontSize = 11.sp) },
         modifier = modifier.fillMaxWidth(),
+        isError = isError,
+        supportingText = supportingText,
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = MikroTikCyan,
-            unfocusedBorderColor = CyberBorder,
+            focusedBorderColor = if (isError) SemanticExpenseRed else MikroTikCyan,
+            unfocusedBorderColor = if (isError) SemanticExpenseRed else CyberBorder,
+            errorBorderColor = SemanticExpenseRed,
             focusedTextColor = TextPrimaryDark,
             unfocusedTextColor = TextPrimaryDark,
-            focusedLabelColor = MikroTikCyan,
-            unfocusedLabelColor = TextSecondaryDark,
+            focusedLabelColor = if (isError) SemanticExpenseRed else MikroTikCyan,
+            unfocusedLabelColor = if (isError) SemanticExpenseRed else TextSecondaryDark,
+            errorLabelColor = SemanticExpenseRed,
             focusedContainerColor = CyberDarkCanvas,
             unfocusedContainerColor = CyberDarkCanvas
         ),
@@ -892,6 +913,7 @@ private fun HubTextField(
 @Composable
 private fun DeviceEditDialog(
     device: NetworkDevice?,
+    existingDevices: List<NetworkDevice>,
     onSave: (NetworkDevice) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -904,13 +926,92 @@ private fun DeviceEditDialog(
     var type by remember { mutableStateOf(device?.deviceType ?: DeviceType.ACCESS_POINT) }
     var status by remember { mutableStateOf(device?.status ?: DeviceStatus.ONLINE) }
 
+    // Real-time IP conflict check against all other registered network devices
+    val conflictingDevice = remember(ip, device, existingDevices) {
+        val cleanIp = ip.trim()
+        if (cleanIp.isBlank() || cleanIp == "10.10.1.") null
+        else existingDevices.firstOrNull {
+            it.id != device?.id && it.ipAddress.trim().equals(cleanIp, ignoreCase = true)
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (device == null) "إضافة جهاز شبكة جديد" else "تعديل جهاز الشبكة", color = TextPrimaryDark) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 HubTextField(label = "اسم الجهاز (مثال: سيكتور شمالي)", value = name, onValueChange = { name = it })
-                HubTextField(label = "عنوان الآي بي (IP Address)", value = ip, onValueChange = { ip = it })
+                
+                HubTextField(
+                    label = "عنوان الآي بي (IP Address)",
+                    value = ip,
+                    onValueChange = { ip = it },
+                    isError = conflictingDevice != null,
+                    supportingText = if (conflictingDevice != null) {
+                        {
+                            Text(
+                                "❌ هذا الآي بي محجوز مسبقاً لجهاز آخر",
+                                color = SemanticExpenseRed,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    } else null
+                )
+
+                // Guidance message detailing the existing device and its location
+                if (conflictingDevice != null) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        colors = CardDefaults.cardColors(containerColor = SemanticExpenseRed.copy(alpha = 0.15f)),
+                        border = BorderStroke(1.dp, SemanticExpenseRed.copy(alpha = 0.6f)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Icon(
+                                Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = SemanticExpenseRed,
+                                modifier = Modifier.size(24.dp).padding(top = 2.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    "تنبيه: تعارض في عنوان الآي بي!",
+                                    color = SemanticExpenseRed,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                                Text(
+                                    "الجهاز المسجل: ${conflictingDevice.name}",
+                                    color = TextPrimaryDark,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 11.sp
+                                )
+                                Text(
+                                    "الموقع / البرج: ${conflictingDevice.towerLocation}",
+                                    color = MikroTikCyan,
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 11.sp
+                                )
+                                Text(
+                                    "نوع الجهاز: ${conflictingDevice.deviceType.labelArabic}",
+                                    color = TextSecondaryDark,
+                                    fontSize = 10.sp
+                                )
+                                Text(
+                                    "⚠️ يجب أن يكون عنوان الآي بي فريداً لتجنب توقف وتضارب شبكة التوزيع.",
+                                    color = TextMutedDark,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
                 HubTextField(label = "عنوان الماك (MAC Address)", value = mac, onValueChange = { mac = it })
                 HubTextField(label = "موقع البرج / المحطة", value = tower, onValueChange = { tower = it })
                 HubTextField(label = "التردد والقناة (مثال: 5500 MHz)", value = freq, onValueChange = { freq = it })
@@ -920,21 +1021,25 @@ private fun DeviceEditDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (name.isNotBlank() && ip.isNotBlank()) {
+                    if (name.isNotBlank() && ip.isNotBlank() && conflictingDevice == null) {
                         val d = (device ?: NetworkDevice(name = name, ipAddress = ip)).copy(
                             name = name,
-                            ipAddress = ip,
-                            macAddress = mac,
-                            towerLocation = tower,
-                            frequency = freq,
-                            notes = notes,
+                            ipAddress = ip.trim(),
+                            macAddress = mac.trim(),
+                            towerLocation = tower.trim(),
+                            frequency = freq.trim(),
+                            notes = notes.trim(),
                             deviceType = type,
                             status = status
                         )
                         onSave(d)
                     }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = MikroTikPrimary)
+                enabled = name.isNotBlank() && ip.isNotBlank() && conflictingDevice == null,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MikroTikPrimary,
+                    disabledContainerColor = CyberBorder
+                )
             ) {
                 Text("حفظ الجهاز")
             }

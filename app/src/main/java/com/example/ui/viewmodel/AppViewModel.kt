@@ -471,6 +471,71 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun postPurchaseInvoiceWithSettlement(
+        vendorName: String,
+        isCash: Boolean,
+        treasuryId: String?,
+        currency: CurrencyCode,
+        exchangeRate: ExchangeRate,
+        items: List<PurchaseItemSpec>,
+        notes: String,
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                val now = getLocalNow()
+                val fiscalYear = now.year
+                val today = now.toEpochDay()
+
+                val allVendors = db.partyDao().getAllPartiesSync()
+                var vendor = allVendors.find { it.name.trim().equals(vendorName.trim(), ignoreCase = true) }
+                if (vendor == null) {
+                    val newVendor = PartyEntity(
+                        id = UuidUtils.newTimeOrderedId(),
+                        name = vendorName.trim().ifBlank { "مورد عام" },
+                        isVendor = true
+                    )
+                    db.partyDao().insertParty(newVendor)
+                    vendor = newVendor
+                }
+
+                val doc = writer.postPurchaseInvoice(
+                    vendorPartyId = vendor.id,
+                    fiscalYear = fiscalYear,
+                    dateEpochDay = today,
+                    currency = currency,
+                    exchangeRate = exchangeRate,
+                    items = items,
+                    notes = notes
+                )
+
+                if (isCash && !treasuryId.isNullOrBlank()) {
+                    val totalOrig = items.sumOf { it.totalMinor }
+                    writer.postPaymentVoucher(
+                        recipientPartyId = vendor.id,
+                        treasuryId = treasuryId,
+                        fiscalYear = fiscalYear,
+                        dateEpochDay = today,
+                        amountOrigMinor = totalOrig,
+                        currency = currency,
+                        exchangeRate = exchangeRate,
+                        paymentType = PaymentVoucherType.VENDOR_SETTLEMENT,
+                        invoiceAllocations = listOf(InvoiceAllocationSpec(invoiceDocId = doc.id, allocatedOrigMinor = totalOrig)),
+                        notes = "سداد نقدي فوري لفاتورة المشتريات #${doc.docNumber}"
+                    )
+                    _userMessage.emit("تم ترحيل فاتورة المشتريات #${doc.docNumber} وسدادها نقداً بنجاح")
+                } else {
+                    _userMessage.emit("تم ترحيل فاتورة المشتريات الآجلة #${doc.docNumber} في حساب المورد '${vendor.name}' بنجاح")
+                }
+
+                refreshDashboard()
+                onSuccess()
+            } catch (e: Exception) {
+                _userMessage.emit("فشل تسجيل فاتورة المشتريات: ${e.message}")
+            }
+        }
+    }
+
     fun postCreditNote(
         partyId: String,
         amountOrigMinor: Long,

@@ -240,4 +240,188 @@ class NetworkAndJsonUnitTest {
         assertEquals("5101", parsed[0].items[0].accountCode)
         assertEquals(20000L, parsed[0].items[0].unitPriceMinor)
     }
+
+    @Test
+    fun testUniqueIpAddressConflictDetection() = kotlinx.coroutines.runBlocking {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        val repo = com.example.data.network.NetworkRepository(context)
+
+        // Seeded devices include 10.10.1.11 (سيكتور شمالي BaseBox 5)
+        val initialDevices = repo.devices.value
+        val existingAp = initialDevices.first { it.ipAddress == "10.10.1.11" }
+        assertNotNull(existingAp)
+
+        // 1. Attempt to add a new device with the same IP: 10.10.1.11
+        val conflictingNewDevice = com.example.data.network.NetworkDevice(
+            name = "سيكتور تجريبي جديد",
+            ipAddress = "10.10.1.11",
+            towerLocation = "برج حدة",
+            deviceType = com.example.data.network.DeviceType.ACCESS_POINT
+        )
+        val conflictResult = repo.addOrUpdateDevice(conflictingNewDevice)
+        assertTrue("Attempt to add duplicate IP must result in IpConflict", conflictResult is com.example.data.network.DeviceSaveResult.IpConflict)
+        val conflict = conflictResult as com.example.data.network.DeviceSaveResult.IpConflict
+        assertEquals("Conflicting device name must match", existingAp.name, conflict.conflictingDevice.name)
+        assertEquals("Conflicting tower location must match", existingAp.towerLocation, conflict.conflictingDevice.towerLocation)
+
+        // 2. Add a new device with a unique IP: 10.10.1.99
+        val uniqueNewDevice = com.example.data.network.NetworkDevice(
+            name = "سيكتور حي الجامعة",
+            ipAddress = "10.10.1.99",
+            towerLocation = "برج الجامعة",
+            deviceType = com.example.data.network.DeviceType.ACCESS_POINT
+        )
+        val successResult = repo.addOrUpdateDevice(uniqueNewDevice)
+        assertTrue("Adding device with unique IP must succeed", successResult is com.example.data.network.DeviceSaveResult.Success)
+
+        // 3. Update existing device with same IP must succeed (no self-conflict)
+        val updatedAp = existingAp.copy(notes = "تم تحديث الملاحظات")
+        val selfUpdateResult = repo.addOrUpdateDevice(updatedAp)
+        assertTrue("Self update with existing IP must succeed", selfUpdateResult is com.example.data.network.DeviceSaveResult.Success)
+
+        // 4. Update unique device to existing AP's IP must be rejected
+        val duplicateUpdate = uniqueNewDevice.copy(ipAddress = "10.10.1.11")
+        val rejectedUpdateResult = repo.addOrUpdateDevice(duplicateUpdate)
+        assertTrue("Updating IP to an existing one must be rejected", rejectedUpdateResult is com.example.data.network.DeviceSaveResult.IpConflict)
+    }
+
+    @Test
+    fun testUserOcrPurchaseInvoiceImport() {
+        val userOcrJson = """
+        {
+          "company_info": {
+            "name": "السلطان تك للكمبيوتر و الإنترنت",
+            "address": "الروضة - تقاطع شارع 24 مع شارع الأربعين",
+            "tax_number": "0"
+          },
+          "invoice_info": {
+            "title": "فاتورة مبيعات - نقدية",
+            "invoice_number": "1811",
+            "date": "18/09/2026",
+            "time": "07:04 م",
+            "currency": "دولار $"
+          },
+          "customer_info": {
+            "name": "مصطفى حسان شبكة طلقه نت",
+            "phone": "770446040",
+            "account_number": null,
+            "tax_number": null
+          },
+          "items": [
+            {
+              "item_number": 1,
+              "name": "قسام وتر بروف 3025سم",
+              "unit": "حبة",
+              "quantity": 4,
+              "unit_price": 6.5,
+              "total": 26.00,
+              "discount": 0,
+              "total_after_discount": 26.0,
+              "tax": 0,
+              "net": 26.0
+            },
+            {
+              "item_number": 2,
+              "name": "الشبح T6_AX1800",
+              "unit": "حبة",
+              "quantity": 5,
+              "unit_price": 19.0,
+              "total": 95.0,
+              "discount": 2.5,
+              "total_after_discount": 92.5,
+              "tax": 0,
+              "net": 92.5
+            },
+            {
+              "item_number": 3,
+              "name": "كرت شبكة تايبسي 21 usp رقم 3621",
+              "unit": "حبة",
+              "quantity": 1,
+              "unit_price": 6.0,
+              "total": 6.0,
+              "discount": 1.0,
+              "total_after_discount": 5.0,
+              "tax": 0,
+              "net": 5.0
+            },
+            {
+              "item_number": 4,
+              "name": "وصلة هارد خارجي UPS3",
+              "unit": "حبة",
+              "quantity": 1,
+              "unit_price": 1.5,
+              "total": 1.50,
+              "discount": 0,
+              "total_after_discount": 1.5,
+              "tax": 0,
+              "net": 1.5
+            },
+            {
+              "item_number": 5,
+              "name": "كيبل ألتراء لينك مع الباور",
+              "unit": "حبة",
+              "quantity": 152,
+              "unit_price": 0.28,
+              "total": 42.56,
+              "discount": 2.0,
+              "total_after_discount": 40.56,
+              "tax": 0,
+              "net": 40.56
+            },
+            {
+              "item_number": 6,
+              "name": "بطارية سوني 9 فولت",
+              "unit": "حبة",
+              "quantity": 1,
+              "unit_price": 3.3,
+              "total": 3.30,
+              "discount": 0,
+              "total_after_discount": 3.3,
+              "tax": 0,
+              "net": 3.3
+            }
+          ],
+          "summary": {
+            "total_amount": 174.36,
+            "total_discount": 5.5,
+            "tax_percentage": 0,
+            "total_tax": 0.00,
+            "net_amount": 168.86
+          },
+          "statement_notes": [
+            "100 الف مسلمه نقد",
+            "400 سعودي حواله للموحده"
+          ]
+        }
+        """.trimIndent()
+
+        val parsedList = DataJsonHelper.parsePurchasesFromJson(userOcrJson)
+        assertEquals("Must parse exactly 1 purchase invoice", 1, parsedList.size)
+
+        val invoice = parsedList[0]
+        assertEquals("السلطان تك للكمبيوتر و الإنترنت", invoice.vendorName)
+        assertEquals(CurrencyCode.USD, invoice.currencyCode)
+        assertEquals(6, invoice.items.size)
+        assertTrue(invoice.notes.contains("1811"))
+        assertTrue(invoice.notes.contains("18/09/2026"))
+        assertTrue(invoice.notes.contains("100 الف مسلمه نقد"))
+        assertTrue("Should detect invoice as cash due to title and cash notes", invoice.isCash)
+
+        // Check Items
+        assertEquals("قسام وتر بروف 3025سم", invoice.items[0].description)
+        assertEquals(4, invoice.items[0].quantity)
+        assertEquals(650L, invoice.items[0].unitPriceMinor)
+
+        // Item 2: AX1800 should be detected as probable asset (Router/WiFi6 equipment)
+        assertEquals("الشبح T6_AX1800", invoice.items[1].description)
+        assertEquals(5, invoice.items[1].quantity)
+        assertEquals(1850L, invoice.items[1].unitPriceMinor) // 92.50 net / 5 = 18.50 USD
+        assertTrue("AX1800 should be detected as probable network asset", invoice.items[1].isAsset)
+        assertEquals("1501", invoice.items[1].accountCode)
+
+        // Item 6: Battery
+        assertEquals("بطارية سوني 9 فولت", invoice.items[5].description)
+        assertEquals(1, invoice.items[5].quantity)
+        assertEquals(330L, invoice.items[5].unitPriceMinor)
+    }
 }

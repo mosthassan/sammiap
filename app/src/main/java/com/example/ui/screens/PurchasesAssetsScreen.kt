@@ -24,6 +24,8 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.ShoppingCart
 import com.example.ui.components.PurchaseJsonBackupDialog
+import com.example.ui.components.EditImportedPurchaseDialog
+import com.example.util.DataJsonHelper
 import com.example.ui.components.FintechTabItem
 import com.example.ui.components.ModernFintechSegmentedTabs
 import com.example.ui.theme.MikroTikCyan
@@ -87,10 +89,12 @@ fun PurchasesAssetsScreen(
     val documents by viewModel.allDocuments.collectAsState()
     val assets by viewModel.allAssets.collectAsState()
     val parties by viewModel.allParties.collectAsState()
+    val treasuries by viewModel.allTreasuries.collectAsState()
 
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Purchases, 1: Fixed Assets Register
     var showNewPurchaseSheet by remember { mutableStateOf(false) }
     var showPurchaseJsonDialog by remember { mutableStateOf(false) }
+    var editingDraft by remember { mutableStateOf<DataJsonHelper.ImportedPurchaseDraft?>(null) }
     var selectedAssetForDeprecate by remember { mutableStateOf<AssetEntity?>(null) }
     var selectedAssetForDisposal by remember { mutableStateOf<AssetEntity?>(null) }
     var disposalProceedsText by remember { mutableStateOf("0") }
@@ -344,8 +348,36 @@ fun PurchasesAssetsScreen(
         PurchaseJsonBackupDialog(
             onImportDrafts = { drafts ->
                 viewModel.postImportedPurchases(drafts)
+                showPurchaseJsonDialog = false
+            },
+            onReviewDraft = { draft ->
+                editingDraft = draft
+                showPurchaseJsonDialog = false
             },
             onDismissRequest = { showPurchaseJsonDialog = false }
+        )
+    }
+
+    editingDraft?.let { draft ->
+        EditImportedPurchaseDialog(
+            draft = draft,
+            parties = parties,
+            treasuries = treasuries,
+            onSaveAndPost = { vendorName, isCash, treasuryId, currency, exchangeRate, items, notes ->
+                viewModel.postPurchaseInvoiceWithSettlement(
+                    vendorName = vendorName,
+                    isCash = isCash,
+                    treasuryId = treasuryId,
+                    currency = currency,
+                    exchangeRate = exchangeRate,
+                    items = items,
+                    notes = notes,
+                    onSuccess = {
+                        editingDraft = null
+                    }
+                )
+            },
+            onDismissRequest = { editingDraft = null }
         )
     }
 }

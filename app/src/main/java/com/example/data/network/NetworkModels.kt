@@ -65,6 +65,11 @@ data class SubnetRange(
     val purpose: String
 )
 
+sealed interface DeviceSaveResult {
+    data class Success(val device: NetworkDevice) : DeviceSaveResult
+    data class IpConflict(val conflictingDevice: NetworkDevice) : DeviceSaveResult
+}
+
 class NetworkRepository(private val context: Context) {
 
     private val configFile = File(context.filesDir, "network_config.json")
@@ -207,7 +212,20 @@ class NetworkRepository(private val context: Context) {
         return initial
     }
 
-    suspend fun addOrUpdateDevice(device: NetworkDevice) = withContext(Dispatchers.IO) {
+    fun findDeviceByIp(ip: String, excludeDeviceId: String? = null): NetworkDevice? {
+        val cleanIp = ip.trim()
+        if (cleanIp.isBlank()) return null
+        return _devices.value.firstOrNull {
+            it.id != excludeDeviceId && it.ipAddress.trim().equals(cleanIp, ignoreCase = true)
+        }
+    }
+
+    suspend fun addOrUpdateDevice(device: NetworkDevice): DeviceSaveResult = withContext(Dispatchers.IO) {
+        val conflict = findDeviceByIp(device.ipAddress, device.id)
+        if (conflict != null) {
+            return@withContext DeviceSaveResult.IpConflict(conflict)
+        }
+
         val current = _devices.value.toMutableList()
         val index = current.indexOfFirst { it.id == device.id }
         if (index >= 0) {
@@ -217,6 +235,7 @@ class NetworkRepository(private val context: Context) {
         }
         saveDevicesInternal(current)
         _devices.value = current
+        DeviceSaveResult.Success(device)
     }
 
     suspend fun deleteDevice(deviceId: String) = withContext(Dispatchers.IO) {

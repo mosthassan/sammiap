@@ -224,7 +224,8 @@ object DataJsonHelper {
         val currencyCode: CurrencyCode,
         val exchangeRateMicros: Long,
         val items: List<PurchaseItemSpec>,
-        val notes: String = ""
+        val notes: String = "",
+        val isCash: Boolean = false
     )
 
     fun exportPurchasesToJson(
@@ -244,6 +245,7 @@ object DataJsonHelper {
                 put("currency", p.currencyCode.name)
                 put("exchangeRateMicros", p.exchangeRateMicros)
                 put("notes", p.notes)
+                put("isCash", p.isCash)
                 val itemsArr = JSONArray()
                 for (item in p.items) {
                     val itemObj = JSONObject().apply {
@@ -272,10 +274,18 @@ object DataJsonHelper {
                 root.has("invoices") -> root.getJSONArray("invoices")
                 root.has("purchases") -> root.getJSONArray("purchases")
                 root.has("purchaseInvoices") -> root.getJSONArray("purchaseInvoices")
+                root.has("bills") -> root.getJSONArray("bills")
+                root.has("data") && root.get("data") is JSONArray -> root.getJSONArray("data")
+                // Single invoice root object (e.g., from OCR invoice scan, Gemini/ChatGPT export)
+                root.has("items") || root.has("company_info") || root.has("invoice_info") ||
+                root.has("supplierName") || root.has("vendorName") || root.has("company") ||
+                root.has("supplier") || root.has("seller") || root.has("summary") -> JSONArray().apply { put(root) }
                 else -> JSONArray()
             }
-        } else {
+        } else if (trimmed.startsWith("[")) {
             JSONArray(trimmed)
+        } else {
+            JSONArray()
         }
 
         val list = mutableListOf<ImportedPurchaseDraft>()
@@ -284,13 +294,27 @@ object DataJsonHelper {
             val vendorName = when {
                 obj.has("supplierName") && obj.getString("supplierName").isNotBlank() -> obj.getString("supplierName").trim()
                 obj.has("vendorName") && obj.getString("vendorName").isNotBlank() -> obj.getString("vendorName").trim()
+                obj.optJSONObject("company_info")?.optString("name")?.isNotBlank() == true -> obj.getJSONObject("company_info").getString("name").trim()
+                obj.optJSONObject("supplier_info")?.optString("name")?.isNotBlank() == true -> obj.getJSONObject("supplier_info").getString("name").trim()
+                obj.optJSONObject("vendor_info")?.optString("name")?.isNotBlank() == true -> obj.getJSONObject("vendor_info").getString("name").trim()
+                obj.optJSONObject("seller")?.optString("name")?.isNotBlank() == true -> obj.getJSONObject("seller").getString("name").trim()
+                obj.optJSONObject("store")?.optString("name")?.isNotBlank() == true -> obj.getJSONObject("store").getString("name").trim()
+                obj.optJSONObject("company")?.optString("name")?.isNotBlank() == true -> obj.getJSONObject("company").getString("name").trim()
+                obj.has("companyName") && obj.getString("companyName").isNotBlank() -> obj.getString("companyName").trim()
+                obj.has("sellerName") && obj.getString("sellerName").isNotBlank() -> obj.getString("sellerName").trim()
                 else -> "مورد عام"
             }
 
-            val rawCurr = obj.optString("currency", "YER").trim().uppercase()
+            val rawCurr = when {
+                obj.has("currency") -> obj.optString("currency")
+                obj.optJSONObject("invoice_info")?.has("currency") == true -> obj.getJSONObject("invoice_info").optString("currency")
+                obj.optJSONObject("header")?.has("currency") == true -> obj.getJSONObject("header").optString("currency")
+                else -> "YER"
+            }.trim().uppercase()
+
             val currency = when {
-                rawCurr.contains("USD") || rawCurr.contains("دولار") -> CurrencyCode.USD
-                rawCurr.contains("SAR") || rawCurr.contains("سعودي") -> CurrencyCode.SAR
+                rawCurr.contains("USD") || rawCurr.contains("دولار") || rawCurr.contains("$") -> CurrencyCode.USD
+                rawCurr.contains("SAR") || rawCurr.contains("سعودي") || rawCurr.contains("ر.س") || rawCurr.contains("SR") -> CurrencyCode.SAR
                 else -> CurrencyCode.YER
             }
 
@@ -300,25 +324,107 @@ object DataJsonHelper {
                 if (currency == CurrencyCode.USD) 530_000_000L else if (currency == CurrencyCode.SAR) 140_000_000L else 1_000_000L
             }
 
-            val notes = when {
-                obj.has("notes") && obj.getString("notes").isNotBlank() -> obj.getString("notes").trim()
-                obj.has("invoiceNumber") -> "فاتورة رقم ${obj.getString("invoiceNumber")}"
-                else -> "استيراد JSON"
+            val invNum = when {
+                obj.has("invoiceNumber") -> obj.optString("invoiceNumber")
+                obj.optJSONObject("invoice_info")?.has("invoice_number") == true -> obj.getJSONObject("invoice_info").optString("invoice_number")
+                obj.optJSONObject("invoice_info")?.has("invoiceNumber") == true -> obj.getJSONObject("invoice_info").optString("invoiceNumber")
+                else -> null
             }
+            val invDate = obj.optJSONObject("invoice_info")?.optString("date")
+            val rawNotes = obj.optString("notes")
+            val statementNotes = if (obj.has("statement_notes")) {
+                val arr = obj.optJSONArray("statement_notes")
+                if (arr != null) {
+                    (0 until arr.length()).map { arr.getString(it) }.joinToString("، ")
+                } else ""
+            } else ""
+
+            val notes = buildString {
+                if (!invNum.isNullOrBlank()) append("فاتورة رقم $invNum")
+                if (!invDate.isNullOrBlank()) append(" بتأريخ $invDate")
+                if (rawNotes.isNotBlank()) append(" | $rawNotes")
+                if (statementNotes.isNotBlank()) append(" | ملاحظات السداد: $statementNotes")
+                if (isEmpty()) append("استيراد فاتورة مورد من صورة/JSON")
+            }
+
+            val invoiceTitle = when {
+                obj.optJSONObject("invoice_info")?.has("title") == true -> obj.getJSONObject("invoice_info").optString("title")
+                obj.has("title") -> obj.optString("title")
+                else -> ""
+            }
+
+            val isCashDetected = invoiceTitle.contains("نقد") || invoiceTitle.contains("كاش") ||
+                invoiceTitle.contains("CASH", ignoreCase = true) ||
+                rawNotes.contains("نقد") || rawNotes.contains("كاش") ||
+                statementNotes.contains("نقد") || statementNotes.contains("كاش") ||
+                obj.optBoolean("isCash", false) ||
+                obj.optString("paymentType").contains("نقد") ||
+                obj.optString("type").contains("نقد")
 
             val items = mutableListOf<PurchaseItemSpec>()
             if (obj.has("items")) {
                 val itemsArr = obj.getJSONArray("items")
                 for (j in 0 until itemsArr.length()) {
                     val itObj = itemsArr.getJSONObject(j)
+                    val desc = when {
+                        itObj.has("description") && itObj.getString("description").isNotBlank() -> itObj.getString("description").trim()
+                        itObj.has("name") && itObj.getString("name").isNotBlank() -> itObj.getString("name").trim()
+                        itObj.has("item_name") && itObj.getString("item_name").isNotBlank() -> itObj.getString("item_name").trim()
+                        itObj.has("title") && itObj.getString("title").isNotBlank() -> itObj.getString("title").trim()
+                        else -> "بند مشتريات #${j + 1}"
+                    }
+
+                    val quantity = when {
+                        itObj.has("quantity") -> itObj.optInt("quantity", 1)
+                        itObj.has("qty") -> itObj.optInt("qty", 1)
+                        itObj.has("count") -> itObj.optInt("count", 1)
+                        else -> 1
+                    }.coerceAtLeast(1)
+
+                    val unitPriceMinor = when {
+                        itObj.has("unitPriceMinor") -> itObj.optLong("unitPriceMinor")
+                        itObj.has("net") && itObj.optDouble("net", 0.0) > 0.0 -> {
+                            val net = itObj.optDouble("net")
+                            ((net / quantity) * 100.0).roundToLong()
+                        }
+                        itObj.has("total_after_discount") && itObj.optDouble("total_after_discount", 0.0) > 0.0 -> {
+                            val net = itObj.optDouble("total_after_discount")
+                            ((net / quantity) * 100.0).roundToLong()
+                        }
+                        itObj.has("unit_price") -> (itObj.optDouble("unit_price", 1.0) * 100.0).roundToLong()
+                        itObj.has("unitPrice") -> (itObj.optDouble("unitPrice", 1.0) * 100.0).roundToLong()
+                        itObj.has("price") -> (itObj.optDouble("price", 1.0) * 100.0).roundToLong()
+                        itObj.has("total") && itObj.optDouble("total", 0.0) > 0.0 -> {
+                            val total = itObj.optDouble("total")
+                            ((total / quantity) * 100.0).roundToLong()
+                        }
+                        else -> 100L
+                    }.coerceAtLeast(1L)
+
+                    val isExplicitAsset = itObj.optBoolean("isAsset", false)
+                    val descUpper = desc.uppercase()
+                    val isProbableAsset = isExplicitAsset ||
+                        descUpper.contains("راوتر") || descUpper.contains("سيرفر") || descUpper.contains("سيكتور") ||
+                        descUpper.contains("أنتينا") || descUpper.contains("انتينة") || descUpper.contains("ROUTER") ||
+                        descUpper.contains("SWITCH") || descUpper.contains("سويتش") || descUpper.contains("CCR") ||
+                        descUpper.contains("AX1800") || descUpper.contains("BASEBOX") || descUpper.contains("MANTBOX") ||
+                        descUpper.contains("SXT") || descUpper.contains("NANOSTATION") || descUpper.contains("POWERBEAM") ||
+                        descUpper.contains("بطارية") || descUpper.contains("طاقة شمسية") || descUpper.contains("محول")
+
+                    val accCode = when {
+                        itObj.has("accountCode") -> itObj.optString("accountCode")
+                        isProbableAsset -> "1501"
+                        else -> "5101"
+                    }
+
                     items.add(
                         PurchaseItemSpec(
-                            description = itObj.optString("description", "بند مشتريات"),
-                            accountCode = itObj.optString("accountCode", "5101"),
-                            quantity = itObj.optInt("quantity", 1).coerceAtLeast(1),
-                            unitPriceMinor = itObj.optLong("unitPriceMinor", 10000L),
-                            isAsset = itObj.optBoolean("isAsset", false),
-                            usefulLifeMonths = if (itObj.has("usefulLifeMonths")) itObj.getInt("usefulLifeMonths") else null
+                            description = desc,
+                            accountCode = accCode,
+                            quantity = quantity,
+                            unitPriceMinor = unitPriceMinor,
+                            isAsset = isProbableAsset,
+                            usefulLifeMonths = if (isProbableAsset) 36 else null
                         )
                     )
                 }
@@ -328,6 +434,10 @@ object DataJsonHelper {
                     obj.getDouble("originalAmount")
                 } else if (obj.has("totalAmount")) {
                     obj.getDouble("totalAmount")
+                } else if (obj.optJSONObject("summary")?.has("net_amount") == true) {
+                    obj.getJSONObject("summary").getDouble("net_amount")
+                } else if (obj.optJSONObject("summary")?.has("total_amount") == true) {
+                    obj.getJSONObject("summary").getDouble("total_amount")
                 } else {
                     100.0
                 }
@@ -356,7 +466,8 @@ object DataJsonHelper {
                         currencyCode = currency,
                         exchangeRateMicros = rateMicros,
                         items = items,
-                        notes = notes
+                        notes = notes,
+                        isCash = isCashDetected
                     )
                 )
             }
