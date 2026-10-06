@@ -11,12 +11,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -41,6 +46,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -57,6 +63,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,6 +71,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.ledger.AccountConstants
@@ -650,92 +658,182 @@ fun NewPurchaseBottomSheet(
     onDismiss: () -> Unit,
     onSubmit: (vendorId: String, currency: CurrencyCode, rate: ExchangeRate, items: List<PurchaseItemSpec>, notes: String) -> Unit
 ) {
-    var selectedVendorId by remember { mutableStateOf(parties.firstOrNull { it.isVendor }?.id ?: AppDatabase.WALK_IN_CASH_PARTY_ID) }
-    var selectedCurrency by remember { mutableStateOf(CurrencyCode.USD) }
-    var exchangeRateText by remember { mutableStateOf("530") }
-    var itemDesc by remember { mutableStateOf("") }
-    var itemQtyText by remember { mutableStateOf("1") }
-    var itemPriceText by remember { mutableStateOf("100") }
-    var isFixedAsset by remember { mutableStateOf(true) }
-    var usefulMonthsText by remember { mutableStateOf("24") }
-    var notes by remember { mutableStateOf("") }
+    var selectedVendorId by rememberSaveable { mutableStateOf(parties.firstOrNull { it.isVendor }?.id ?: AppDatabase.WALK_IN_CASH_PARTY_ID) }
+    var selectedCurrency by rememberSaveable { mutableStateOf(CurrencyCode.USD) }
+    var exchangeRateText by rememberSaveable { mutableStateOf("530") }
+    var itemDesc by rememberSaveable { mutableStateOf("") }
+    var itemQtyText by rememberSaveable { mutableStateOf("1") }
+    var itemPriceText by rememberSaveable { mutableStateOf("100") }
+    var isFixedAsset by rememberSaveable { mutableStateOf(true) }
+    var usefulMonthsText by rememberSaveable { mutableStateOf("24") }
+    var notes by rememberSaveable { mutableStateOf("") }
 
     val itemsList = remember { androidx.compose.runtime.mutableStateListOf<PurchaseItemSpec>() }
+    val scrollState = rememberScrollState()
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("فاتورة مشتريات وتجهيز شبكة", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
+        ) {
+            Text(
+                text = "فاتورة مشتريات وتجهيز شبكة",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
 
-            Text("المورد:")
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                parties.filter { it.isVendor }.take(3).forEach { v ->
-                    FilterChip(selected = selectedVendorId == v.id, onClick = { selectedVendorId = v.id }, label = { Text(v.name) })
+            HorizontalDivider()
+
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("المورد:")
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                    items(parties.filter { it.isVendor }) { v ->
+                        FilterChip(
+                            selected = selectedVendorId == v.id,
+                            onClick = { selectedVendorId = v.id },
+                            label = { Text(v.name, maxLines = 1, softWrap = false) }
+                        )
+                    }
                 }
-            }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(modifier = Modifier.weight(1f)) {
-                    FilterChip(selected = selectedCurrency == CurrencyCode.USD, onClick = { selectedCurrency = CurrencyCode.USD }, label = { Text("USD ($)") })
-                    Spacer(modifier = Modifier.width(4.dp))
-                    FilterChip(selected = selectedCurrency == CurrencyCode.YER, onClick = { selectedCurrency = CurrencyCode.YER }, label = { Text("YER (ر.ي)") })
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(modifier = Modifier.weight(1f)) {
+                        FilterChip(selected = selectedCurrency == CurrencyCode.USD, onClick = { selectedCurrency = CurrencyCode.USD }, label = { Text("USD ($)") })
+                        Spacer(modifier = Modifier.width(4.dp))
+                        FilterChip(selected = selectedCurrency == CurrencyCode.YER, onClick = { selectedCurrency = CurrencyCode.YER }, label = { Text("YER (ر.ي)") })
+                    }
+                    if (selectedCurrency != CurrencyCode.FUNCTIONAL) {
+                        OutlinedTextField(
+                            value = exchangeRateText,
+                            onValueChange = { exchangeRateText = it },
+                            label = { Text("سعر الصرف (YER/USD)") },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
-                if (selectedCurrency != CurrencyCode.FUNCTIONAL) {
+
+                SectionHeader(title = "إضافة بند مشتريات")
+                OutlinedTextField(
+                    value = itemDesc,
+                    onValueChange = { itemDesc = it },
+                    label = { Text("اسم الجهاز أو المادة (مثال: راوتر MikroTik CCR)") },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
-                        value = exchangeRateText,
-                        onValueChange = { exchangeRateText = it },
-                        label = { Text("سعر الصرف (YER/USD)") },
+                        value = itemQtyText,
+                        onValueChange = { itemQtyText = it },
+                        label = { Text("الكمية") },
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f)
                     )
+                    OutlinedTextField(
+                        value = itemPriceText,
+                        onValueChange = { itemPriceText = it },
+                        label = { Text("السعر بالـ ${selectedCurrency.name}") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1.5f)
+                    )
                 }
-            }
 
-            SectionHeader(title = "إضافة بند مشتريات")
-            OutlinedTextField(value = itemDesc, onValueChange = { itemDesc = it }, label = { Text("اسم الجهاز أو المادة (مثال: راوتر MikroTik CCR)") }, modifier = Modifier.fillMaxWidth())
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = isFixedAsset, onCheckedChange = { isFixedAsset = it })
+                    Text("أصل شبكة ثابت (يُدرج تلقائياً في سجل الأصول 1501)")
+                }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = itemQtyText, onValueChange = { itemQtyText = it }, label = { Text("الكمية") }, modifier = Modifier.weight(1f))
-                OutlinedTextField(value = itemPriceText, onValueChange = { itemPriceText = it }, label = { Text("السعر بالـ ${selectedCurrency.name}") }, modifier = Modifier.weight(1.5f))
-            }
+                if (isFixedAsset) {
+                    OutlinedTextField(
+                        value = usefulMonthsText,
+                        onValueChange = { usefulMonthsText = it },
+                        label = { Text("العمر الافتراضي (بالأشهر)") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = isFixedAsset, onCheckedChange = { isFixedAsset = it })
-                Text("أصل شبكة ثابت (يُدرج تلقائياً في سجل الأصول 1501)")
-            }
+                Button(
+                    onClick = {
+                        val q = itemQtyText.toIntOrNull() ?: 1
+                        val p = (itemPriceText.toLongOrNull() ?: 0L) * 100L
+                        val m = usefulMonthsText.toIntOrNull() ?: 24
+                        val code = if (isFixedAsset) AccountConstants.FIXED_ASSETS_NETWORK else AccountConstants.OPERATING_EXPENSES
+                        itemsList.add(PurchaseItemSpec(itemDesc.ifBlank { "معدات شبكة" }, code, q, p, isFixedAsset, m))
+                        itemDesc = ""
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("إضافة البند للفاتورة")
+                }
 
-            if (isFixedAsset) {
-                OutlinedTextField(value = usefulMonthsText, onValueChange = { usefulMonthsText = it }, label = { Text("العمر الافتراضي (بالأشهر)") }, modifier = Modifier.fillMaxWidth())
-            }
-
-            Button(
-                onClick = {
-                    val q = itemQtyText.toIntOrNull() ?: 1
-                    val p = (itemPriceText.toLongOrNull() ?: 0L) * 100L
-                    val m = usefulMonthsText.toIntOrNull() ?: 24
-                    val code = if (isFixedAsset) AccountConstants.FIXED_ASSETS_NETWORK else AccountConstants.OPERATING_EXPENSES
-                    itemsList.add(PurchaseItemSpec(itemDesc.ifBlank { "معدات شبكة" }, code, q, p, isFixedAsset, m))
-                    itemDesc = ""
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("إضافة البند للفاتورة")
-            }
-
-            itemsList.forEachIndexed { idx, itm ->
-                Text("• ${itm.description}: ${itm.quantity} × ${itm.unitPriceMinor / 100L} ${selectedCurrency.name}")
-            }
-
-            Button(
-                onClick = {
-                    if (itemsList.isNotEmpty()) {
-                        val rateMicros = (exchangeRateText.toLongOrNull() ?: 530L) * 1_000_000L
-                        val rate = if (selectedCurrency == CurrencyCode.FUNCTIONAL) ExchangeRate.parity(CurrencyCode.FUNCTIONAL) else ExchangeRate(selectedCurrency, CurrencyCode.FUNCTIONAL, rateMicros)
-                        onSubmit(selectedVendorId, selectedCurrency, rate, itemsList.toList(), notes)
+                itemsList.forEachIndexed { idx, itm ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("• ${itm.description}: ${itm.quantity} × ${itm.unitPriceMinor / 100L} ${selectedCurrency.name}")
+                            IconButton(onClick = { itemsList.removeAt(idx) }) {
+                                Icon(Icons.Default.Delete, contentDescription = "حذف")
+                            }
+                        }
                     }
-                },
-                enabled = itemsList.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth()
+                }
+
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("ملاحظات") },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            HorizontalDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("ترحيل فاتورة المشتريات", fontWeight = FontWeight.Bold)
+                Button(
+                    onClick = {
+                        if (itemsList.isNotEmpty()) {
+                            val rateMicros = (exchangeRateText.toLongOrNull() ?: 530L) * 1_000_000L
+                            val rate = if (selectedCurrency == CurrencyCode.FUNCTIONAL) ExchangeRate.parity(CurrencyCode.FUNCTIONAL) else ExchangeRate(selectedCurrency, CurrencyCode.FUNCTIONAL, rateMicros)
+                            onSubmit(selectedVendorId, selectedCurrency, rate, itemsList.toList(), notes)
+                        }
+                    },
+                    enabled = itemsList.isNotEmpty(),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f).height(48.dp)
+                ) {
+                    Text("ترحيل فاتورة المشتريات", fontWeight = FontWeight.Bold)
+                }
+                TextButton(onClick = onDismiss, modifier = Modifier.height(48.dp)) {
+                    Text("إلغاء")
+                }
             }
         }
     }

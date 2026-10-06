@@ -10,12 +10,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.History
@@ -27,6 +32,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -45,6 +51,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,12 +59,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.model.CurrencyCode
 import com.example.core.model.Money
 import com.example.core.model.UuidUtils
 import com.example.data.local.entity.CardPackageEntity
+import com.example.ui.components.AddManualCardsCountDialog
 import com.example.ui.components.FintechTabItem
 import com.example.ui.components.ModernFintechSegmentedTabs
 import com.example.ui.theme.MikroTikCyan
@@ -264,9 +273,9 @@ fun PackagesStockScreen(
         )
     }
 
-    // Receive Stock Sheet
+    // Receive Stock Sheet / Add Manual Cards Count
     if (showReceiveStockSheet) {
-        ReceiveStockBottomSheet(
+        AddManualCardsCountDialog(
             packages = packages,
             onDismiss = { showReceiveStockSheet = false },
             onSubmit = { pkgId, qty, notes ->
@@ -293,31 +302,93 @@ fun AddPackageBottomSheet(
     onDismiss: () -> Unit,
     onSubmit: (name: String, quota: String, wholesaleMinor: Long, retailMinor: Long) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
-    var quota by remember { mutableStateOf("") }
-    var wholesaleText by remember { mutableStateOf("") }
-    var retailText by remember { mutableStateOf("") }
+    var name by rememberSaveable { mutableStateOf("") }
+    var quota by rememberSaveable { mutableStateOf("") }
+    var wholesaleText by rememberSaveable { mutableStateOf("") }
+    var retailText by rememberSaveable { mutableStateOf("") }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("إضافة باقة كروت إنترنت جديدة", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+    val scrollState = rememberScrollState()
 
-            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("اسم الباقة (مثال: باقة اليوم الواحد)") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = quota, onValueChange = { quota = it }, label = { Text("السعة / المدة (مثال: 1GB / 24 ساعة)") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = wholesaleText, onValueChange = { wholesaleText = it }, label = { Text("سعر الجملة للبقالات (ر.ي)") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = retailText, onValueChange = { retailText = it }, label = { Text("سعر التجزئة المقترح للمستخدم (ر.ي)") }, modifier = Modifier.fillMaxWidth())
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
+        ) {
+            Text(
+                text = "إضافة باقة كروت إنترنت جديدة",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
 
-            Button(
-                onClick = {
-                    if (name.isNotBlank()) {
-                        val w = (wholesaleText.toLongOrNull() ?: 0L) * 100L
-                        val r = (retailText.toLongOrNull() ?: 0L) * 100L
-                        onSubmit(name, quota, w, r)
-                    }
-                },
-                modifier = Modifier.fillMaxWidth()
+            HorizontalDivider()
+
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("حفظ الباقة", fontWeight = FontWeight.Bold)
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("اسم الباقة (مثال: باقة اليوم الواحد)") },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = quota,
+                    onValueChange = { quota = it },
+                    label = { Text("السعة / المدة (مثال: 1GB / 24 ساعة)") },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = wholesaleText,
+                    onValueChange = { wholesaleText = it },
+                    label = { Text("سعر الجملة للبقالات (ر.ي)") },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = retailText,
+                    onValueChange = { retailText = it },
+                    label = { Text("سعر التجزئة المقترح للمستخدم (ر.ي)") },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            HorizontalDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = {
+                        if (name.isNotBlank()) {
+                            val w = (wholesaleText.toLongOrNull() ?: 0L) * 100L
+                            val r = (retailText.toLongOrNull() ?: 0L) * 100L
+                            onSubmit(name, quota, w, r)
+                        }
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f).height(48.dp)
+                ) {
+                    Text("حفظ الباقة", fontWeight = FontWeight.Bold)
+                }
+                TextButton(onClick = onDismiss, modifier = Modifier.height(48.dp)) {
+                    Text("إلغاء")
+                }
             }
         }
     }
@@ -330,41 +401,11 @@ fun ReceiveStockBottomSheet(
     onDismiss: () -> Unit,
     onSubmit: (packageId: String, quantity: Int, notes: String) -> Unit
 ) {
-    var selectedPackageId by remember { mutableStateOf(packages.firstOrNull()?.id ?: "") }
-    var qtyText by remember { mutableStateOf("100") }
-    var notes by remember { mutableStateOf("") }
-
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("استلام دفعة كروت مطبوعة (زيادة الرصيد)", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-
-            Text("اختر الباقة المستلمة:")
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                packages.take(4).forEach { pkg ->
-                    FilterChip(
-                        selected = selectedPackageId == pkg.id,
-                        onClick = { selectedPackageId = pkg.id },
-                        label = { Text(pkg.name) }
-                    )
-                }
-            }
-
-            OutlinedTextField(value = qtyText, onValueChange = { qtyText = it }, label = { Text("الكمية المستلمة (عدد الكروت)") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = notes, onValueChange = { notes = it }, label = { Text("ملاحظات / رقم الدفعة أو المطبعة") }, modifier = Modifier.fillMaxWidth())
-
-            Button(
-                onClick = {
-                    val q = qtyText.toIntOrNull() ?: 0
-                    if (selectedPackageId.isNotBlank() && q > 0) {
-                        onSubmit(selectedPackageId, q, notes)
-                    }
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("تأكيد استلام الكمية", fontWeight = FontWeight.Bold)
-            }
-        }
-    }
+    AddManualCardsCountDialog(
+        packages = packages,
+        onDismiss = onDismiss,
+        onSubmit = onSubmit
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -374,39 +415,102 @@ fun AdjustStockBottomSheet(
     onDismiss: () -> Unit,
     onSubmit: (packageId: String, adjustmentQty: Int, reason: String) -> Unit
 ) {
-    var selectedPackageId by remember { mutableStateOf(packages.firstOrNull()?.id ?: "") }
-    var adjText by remember { mutableStateOf("") }
-    var reason by remember { mutableStateOf("") }
+    var selectedPackageId by rememberSaveable { mutableStateOf(packages.firstOrNull()?.id ?: "") }
+    var adjText by rememberSaveable { mutableStateOf("") }
+    var reason by rememberSaveable { mutableStateOf("") }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("تسوية جرد كروت", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+    val scrollState = rememberScrollState()
 
-            Text("الباقة المراد تسويتها:")
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                packages.take(4).forEach { pkg ->
-                    FilterChip(
-                        selected = selectedPackageId == pkg.id,
-                        onClick = { selectedPackageId = pkg.id },
-                        label = { Text(pkg.name) }
-                    )
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
+        ) {
+            Text(
+                text = "تسوية جرد كروت",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+
+            HorizontalDivider()
+
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("الباقة المراد تسويتها:", style = MaterialTheme.typography.labelMedium)
+
+                // Single-line non-wrapping package chips using LazyRow
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(packages) { pkg ->
+                        FilterChip(
+                            selected = selectedPackageId == pkg.id,
+                            onClick = { selectedPackageId = pkg.id },
+                            label = {
+                                Text(
+                                    text = pkg.name,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                    }
                 }
+
+                OutlinedTextField(
+                    value = adjText,
+                    onValueChange = { adjText = it },
+                    label = { Text("الكمية المضافة (+) أو المخصومة (-)") },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = { reason = it },
+                    label = { Text("سبب التسوية (إلزامي)") },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
 
-            OutlinedTextField(value = adjText, onValueChange = { adjText = it }, label = { Text("الكمية المضافة (+) أو المخصومة (-)") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = reason, onValueChange = { reason = it }, label = { Text("سبب التسوية (إلزامي)") }, modifier = Modifier.fillMaxWidth())
+            HorizontalDivider()
 
-            Button(
-                onClick = {
-                    val q = adjText.toIntOrNull() ?: 0
-                    if (q != 0 && reason.isNotBlank()) {
-                        onSubmit(selectedPackageId, q, reason)
-                    }
-                },
-                enabled = reason.isNotBlank(),
-                modifier = Modifier.fillMaxWidth()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("اعتماد تسوية الرصيد", fontWeight = FontWeight.Bold)
+                Button(
+                    onClick = {
+                        val q = adjText.toIntOrNull() ?: 0
+                        if (q != 0 && reason.isNotBlank()) {
+                            onSubmit(selectedPackageId, q, reason)
+                        }
+                    },
+                    enabled = reason.isNotBlank(),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f).height(48.dp)
+                ) {
+                    Text("اعتماد تسوية الرصيد", fontWeight = FontWeight.Bold)
+                }
+                TextButton(onClick = onDismiss, modifier = Modifier.height(48.dp)) {
+                    Text("إلغاء")
+                }
             }
         }
     }

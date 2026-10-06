@@ -897,16 +897,9 @@ class LedgerWriter(
         // If purchase invoice containing assets was voided, remove un-depreciated assets or dispose them
         if (doc.type == DocumentType.PURCHASE_INVOICE.name) {
             val assets = db.assetDao().getAllAssetsSync().filter { it.docId == docId }
-            val depRuns = db.assetDao().getAllDepreciationRunsSync()
             assets.forEach { ast ->
-                val hasDepreciation = depRuns.any { it.assetId == ast.id }
-                if (!hasDepreciation) {
-                    db.assetDao().deleteAsset(ast.id)
-                    recordAuditLog("ASSET", ast.id, "DELETE_PURCHASE", "deleted=true", "Deleted un-depreciated asset ${ast.name} due to voided purchase invoice $docId")
-                } else {
-                    db.assetDao().setAssetDisposed(ast.id, true)
-                    recordAuditLog("ASSET", ast.id, "VOID_PURCHASE", "isDisposed=false", "Disposed asset ${ast.name} due to voided purchase invoice $docId")
-                }
+                db.assetDao().setAssetDisposed(ast.id, true)
+                recordAuditLog("ASSET", ast.id, "VOID_PURCHASE", "isDisposed=false", "Disposed asset ${ast.name} due to voided purchase invoice $docId")
             }
         }
 

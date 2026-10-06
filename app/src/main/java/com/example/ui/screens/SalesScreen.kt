@@ -11,12 +11,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -55,6 +60,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +68,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.model.CurrencyCode
@@ -433,121 +440,167 @@ fun QuickSaleBottomSheet(
     onDismiss: () -> Unit,
     onSubmit: (partyId: String, packageId: String?, desc: String, qty: Int, unitPriceMinor: Long, cashPaidMinor: Long, treasuryId: String) -> Unit
 ) {
-    var selectedPartyId by remember { mutableStateOf(AppDatabase.WALK_IN_CASH_PARTY_ID) }
-    var selectedPackageId by remember { mutableStateOf(packages.firstOrNull()?.id ?: "") }
-    var quantityText by remember { mutableStateOf("1") }
-    var customPriceText by remember { mutableStateOf("") }
-    var paymentMode by remember { mutableStateOf("CASH") } // CASH, CREDIT, PARTIAL
-    var cashPaidText by remember { mutableStateOf("") }
-    var selectedTreasuryId by remember { mutableStateOf(treasuries.firstOrNull()?.id ?: "TR_MAIN_YER") }
+    var selectedPartyId by rememberSaveable { mutableStateOf(AppDatabase.WALK_IN_CASH_PARTY_ID) }
+    var selectedPackageId by rememberSaveable { mutableStateOf(packages.firstOrNull()?.id ?: "") }
+    var quantityText by rememberSaveable { mutableStateOf("1") }
+    var customPriceText by rememberSaveable { mutableStateOf("") }
+    var paymentMode by rememberSaveable { mutableStateOf("CASH") } // CASH, CREDIT, PARTIAL
+    var cashPaidText by rememberSaveable { mutableStateOf("") }
+    var selectedTreasuryId by rememberSaveable { mutableStateOf(treasuries.firstOrNull()?.id ?: "TR_MAIN_YER") }
 
     val activePackage = packages.firstOrNull { it.id == selectedPackageId }
     val unitPriceMinor = customPriceText.toLongOrNull()?.times(100L) ?: (activePackage?.wholesalePriceMinor ?: 50000L)
     val qty = quantityText.toIntOrNull() ?: 1
     val totalInvoiceMinor = unitPriceMinor * qty
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    val scrollState = rememberScrollState()
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
         Column(
             modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
         ) {
-            Text("بيع سريع - نقطة التوزيع الميداني", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                text = "بيع سريع - نقطة التوزيع الميداني",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
 
-            // Select Party
-            Text("الطرف المشتري:", style = MaterialTheme.typography.labelMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = selectedPartyId == AppDatabase.WALK_IN_CASH_PARTY_ID,
-                    onClick = { selectedPartyId = AppDatabase.WALK_IN_CASH_PARTY_ID },
-                    label = { Text("عميل نقدي فوري") }
-                )
-                parties.filter { it.isCustomer && it.id != AppDatabase.WALK_IN_CASH_PARTY_ID }.take(3).forEach { p ->
-                    FilterChip(
-                        selected = selectedPartyId == p.id,
-                        onClick = { selectedPartyId = p.id },
-                        label = { Text(p.name) }
-                    )
-                }
-            }
+            HorizontalDivider()
 
-            // Select Package
-            Text("باقة الكروت:", style = MaterialTheme.typography.labelMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                packages.take(4).forEach { pkg ->
-                    FilterChip(
-                        selected = selectedPackageId == pkg.id,
-                        onClick = {
-                            selectedPackageId = pkg.id
-                            customPriceText = (pkg.wholesalePriceMinor / 100L).toString()
-                        },
-                        label = { Text("${pkg.name} (${Money(pkg.wholesalePriceMinor, CurrencyCode.YER).format()})") }
-                    )
-                }
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = quantityText,
-                    onValueChange = { quantityText = it },
-                    label = { Text("الكمية") },
-                    modifier = Modifier.weight(1f)
-                )
-                OutlinedTextField(
-                    value = if (customPriceText.isBlank()) (unitPriceMinor / 100L).toString() else customPriceText,
-                    onValueChange = { customPriceText = it },
-                    label = { Text("سعر الوحدة (ر.ي)") },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("إجمالي الفاتورة:", fontWeight = FontWeight.Bold)
-                    AmountText(money = Money(totalInvoiceMinor, CurrencyCode.YER), fontSize = 18)
-                }
-            }
-
-            // Payment Mode
-            Text("طريقة التحصيل:", style = MaterialTheme.typography.labelMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = paymentMode == "CASH", onClick = { paymentMode = "CASH" }, label = { Text("نقد كامل فوراً") })
-                FilterChip(selected = paymentMode == "CREDIT", onClick = { paymentMode = "CREDIT" }, label = { Text("آجل بالكامل") })
-                FilterChip(selected = paymentMode == "PARTIAL", onClick = { paymentMode = "PARTIAL" }, label = { Text("دفعة جزئية") })
-            }
-
-            if (paymentMode == "PARTIAL") {
-                OutlinedTextField(
-                    value = cashPaidText,
-                    onValueChange = { cashPaidText = it },
-                    label = { Text("المبلغ المدفوع نقداً (ر.ي)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            Button(
-                onClick = {
-                    val cashToPayMinor = when (paymentMode) {
-                        "CASH" -> totalInvoiceMinor
-                        "CREDIT" -> 0L
-                        "PARTIAL" -> (cashPaidText.toLongOrNull() ?: 0L) * 100L
-                        else -> totalInvoiceMinor
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Select Party
+                Text("الطرف المشتري:", style = MaterialTheme.typography.labelMedium)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    item {
+                        FilterChip(
+                            selected = selectedPartyId == AppDatabase.WALK_IN_CASH_PARTY_ID,
+                            onClick = { selectedPartyId = AppDatabase.WALK_IN_CASH_PARTY_ID },
+                            label = { Text("عميل نقدي فوري", maxLines = 1, softWrap = false) }
+                        )
                     }
-                    val desc = activePackage?.name ?: "كروت إنترنت"
-                    onSubmit(selectedPartyId, selectedPackageId, desc, qty, unitPriceMinor, cashToPayMinor, selectedTreasuryId)
-                },
+                    items(parties.filter { it.isCustomer && it.id != AppDatabase.WALK_IN_CASH_PARTY_ID }) { p ->
+                        FilterChip(
+                            selected = selectedPartyId == p.id,
+                            onClick = { selectedPartyId = p.id },
+                            label = { Text(p.name, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) }
+                        )
+                    }
+                }
+
+                // Select Package
+                Text("باقة الكروت:", style = MaterialTheme.typography.labelMedium)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    items(packages) { pkg ->
+                        FilterChip(
+                            selected = selectedPackageId == pkg.id,
+                            onClick = {
+                                selectedPackageId = pkg.id
+                                customPriceText = (pkg.wholesalePriceMinor / 100L).toString()
+                            },
+                            label = {
+                                Text(
+                                    text = "${pkg.name} (${Money(pkg.wholesalePriceMinor, CurrencyCode.YER).format()})",
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        )
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = quantityText,
+                        onValueChange = { quantityText = it },
+                        label = { Text("الكمية") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = if (customPriceText.isBlank()) (unitPriceMinor / 100L).toString() else customPriceText,
+                        onValueChange = { customPriceText = it },
+                        label = { Text("سعر الوحدة (ر.ي)") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("إجمالي الفاتورة:", fontWeight = FontWeight.Bold)
+                        AmountText(money = Money(totalInvoiceMinor, CurrencyCode.YER), fontSize = 18)
+                    }
+                }
+
+                // Payment Mode
+                Text("طريقة التحصيل:", style = MaterialTheme.typography.labelMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = paymentMode == "CASH", onClick = { paymentMode = "CASH" }, label = { Text("نقد كامل فوراً") })
+                    FilterChip(selected = paymentMode == "CREDIT", onClick = { paymentMode = "CREDIT" }, label = { Text("آجل بالكامل") })
+                    FilterChip(selected = paymentMode == "PARTIAL", onClick = { paymentMode = "PARTIAL" }, label = { Text("دفعة جزئية") })
+                }
+
+                if (paymentMode == "PARTIAL") {
+                    OutlinedTextField(
+                        value = cashPaidText,
+                        onValueChange = { cashPaidText = it },
+                        label = { Text("المبلغ المدفوع نقداً (ر.ي)") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            HorizontalDivider()
+
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("submit_quick_sale")
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("ترحيل البيع السريع وتوليد القيود", fontWeight = FontWeight.Bold)
+                Button(
+                    onClick = {
+                        val cashToPayMinor = when (paymentMode) {
+                            "CASH" -> totalInvoiceMinor
+                            "CREDIT" -> 0L
+                            "PARTIAL" -> (cashPaidText.toLongOrNull() ?: 0L) * 100L
+                            else -> totalInvoiceMinor
+                        }
+                        val desc = activePackage?.name ?: "كروت إنترنت"
+                        onSubmit(selectedPartyId, selectedPackageId, desc, qty, unitPriceMinor, cashToPayMinor, selectedTreasuryId)
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .testTag("submit_quick_sale")
+                ) {
+                    Text("ترحيل البيع السريع وتوليد القيود", fontWeight = FontWeight.Bold)
+                }
+                TextButton(onClick = onDismiss, modifier = Modifier.height(48.dp)) {
+                    Text("إلغاء")
+                }
             }
         }
     }
@@ -561,110 +614,156 @@ fun NewInvoiceBottomSheet(
     onDismiss: () -> Unit,
     onSubmit: (partyId: String, cardItems: List<SalesItemSpec>, serviceItems: List<SalesItemSpec>, currency: CurrencyCode, rate: ExchangeRate, notes: String) -> Unit
 ) {
-    var selectedPartyId by remember { mutableStateOf(parties.firstOrNull { it.isCustomer }?.id ?: AppDatabase.WALK_IN_CASH_PARTY_ID) }
-    var notes by remember { mutableStateOf("") }
+    var selectedPartyId by rememberSaveable { mutableStateOf(parties.firstOrNull { it.isCustomer }?.id ?: AppDatabase.WALK_IN_CASH_PARTY_ID) }
+    var notes by rememberSaveable { mutableStateOf("") }
     val cardItems = remember { mutableStateListOf<SalesItemSpec>() }
 
-    var itemDesc by remember { mutableStateOf("") }
-    var itemQty by remember { mutableStateOf("10") }
-    var itemPrice by remember { mutableStateOf("500") }
+    var itemDesc by rememberSaveable { mutableStateOf("") }
+    var itemQty by rememberSaveable { mutableStateOf("10") }
+    var itemPrice by rememberSaveable { mutableStateOf("500") }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    val scrollState = rememberScrollState()
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
         Column(
             modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
         ) {
-            Text("فاتورة مبيعات جديدة", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-
-            // Select Party
-            Text("اختر العميل/الوكيل:")
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                parties.filter { it.isCustomer }.take(4).forEach { p ->
-                    FilterChip(
-                        selected = selectedPartyId == p.id,
-                        onClick = { selectedPartyId = p.id },
-                        label = { Text(p.name, fontSize = 11.sp) }
-                    )
-                }
-            }
-
-            SectionHeader(title = "إضافة بنود الفاتورة")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = itemDesc,
-                    onValueChange = { itemDesc = it },
-                    label = { Text("الوصف/الباقة") },
-                    modifier = Modifier.weight(1.5f)
-                )
-                OutlinedTextField(
-                    value = itemQty,
-                    onValueChange = { itemQty = it },
-                    label = { Text("الكمية") },
-                    modifier = Modifier.weight(1f)
-                )
-                OutlinedTextField(
-                    value = itemPrice,
-                    onValueChange = { itemPrice = it },
-                    label = { Text("السعر") },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            Button(
-                onClick = {
-                    val q = itemQty.toIntOrNull() ?: 1
-                    val p = (itemPrice.toLongOrNull() ?: 500L) * 100L
-                    val d = if (itemDesc.isBlank()) "كروت إنترنت" else itemDesc
-                    cardItems.add(SalesItemSpec(description = d, quantity = q, unitPriceMinor = p))
-                    itemDesc = ""
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null)
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("إضافة السطر للفاتورة")
-            }
-
-            // Added Items Preview
-            cardItems.forEachIndexed { idx, itm ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("${itm.description} (${itm.quantity} × ${itm.unitPriceMinor / 100L})")
-                    IconButton(onClick = { cardItems.removeAt(idx) }) {
-                        Icon(Icons.Default.Close, contentDescription = "حذف")
-                    }
-                }
-            }
-
-            OutlinedTextField(
-                value = notes,
-                onValueChange = { notes = it },
-                label = { Text("ملاحظات") },
-                modifier = Modifier.fillMaxWidth()
+            Text(
+                text = "فاتورة مبيعات جديدة",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
 
-            Button(
-                onClick = {
-                    if (cardItems.isNotEmpty()) {
-                        onSubmit(
-                            selectedPartyId,
-                            cardItems.toList(),
-                            emptyList(),
-                            CurrencyCode.YER,
-                            ExchangeRate.parity(CurrencyCode.YER),
-                            notes
+            HorizontalDivider()
+
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Select Party
+                Text("اختر العميل/الوكيل:")
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                    items(parties.filter { it.isCustomer }) { p ->
+                        FilterChip(
+                            selected = selectedPartyId == p.id,
+                            onClick = { selectedPartyId = p.id },
+                            label = { Text(p.name, fontSize = 11.sp, maxLines = 1, softWrap = false) }
                         )
                     }
-                },
-                enabled = cardItems.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth()
+                }
+
+                SectionHeader(title = "إضافة بنود الفاتورة")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = itemDesc,
+                        onValueChange = { itemDesc = it },
+                        label = { Text("الوصف/الباقة") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1.5f)
+                    )
+                    OutlinedTextField(
+                        value = itemQty,
+                        onValueChange = { itemQty = it },
+                        label = { Text("الكمية") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = itemPrice,
+                        onValueChange = { itemPrice = it },
+                        label = { Text("السعر") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        val q = itemQty.toIntOrNull() ?: 1
+                        val p = (itemPrice.toLongOrNull() ?: 500L) * 100L
+                        val d = if (itemDesc.isBlank()) "كروت إنترنت" else itemDesc
+                        cardItems.add(SalesItemSpec(description = d, quantity = q, unitPriceMinor = p))
+                        itemDesc = ""
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("إضافة السطر للفاتورة")
+                }
+
+                // Added Items Preview
+                cardItems.forEachIndexed { idx, itm ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("${itm.description} (${itm.quantity} × ${itm.unitPriceMinor / 100L} ر.ي)", fontWeight = FontWeight.SemiBold)
+                            IconButton(onClick = { cardItems.removeAt(idx) }) {
+                                Icon(Icons.Default.Close, contentDescription = "حذف")
+                            }
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("ملاحظات") },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            HorizontalDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("ترحيل الفاتورة", fontWeight = FontWeight.Bold)
+                Button(
+                    onClick = {
+                        if (cardItems.isNotEmpty()) {
+                            onSubmit(
+                                selectedPartyId,
+                                cardItems.toList(),
+                                emptyList(),
+                                CurrencyCode.YER,
+                                ExchangeRate.parity(CurrencyCode.YER),
+                                notes
+                            )
+                        }
+                    },
+                    enabled = cardItems.isNotEmpty(),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f).height(48.dp)
+                ) {
+                    Text("اعتماد وترحيل فاتورة المبيعات", fontWeight = FontWeight.Bold)
+                }
+                TextButton(onClick = onDismiss, modifier = Modifier.height(48.dp)) {
+                    Text("إلغاء")
+                }
             }
         }
     }
