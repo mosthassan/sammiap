@@ -304,6 +304,67 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun postSalesInvoiceWithSettlement(
+        partyId: String,
+        cardItems: List<SalesItemSpec>,
+        serviceItems: List<SalesItemSpec> = emptyList(),
+        currency: CurrencyCode = CurrencyCode.YER,
+        exchangeRate: ExchangeRate = ExchangeRate.parity(CurrencyCode.YER),
+        cashPaidMinor: Long = 0L,
+        treasuryId: String = "TR_MAIN_YER",
+        notes: String = "",
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                val now = getLocalNow()
+                val fiscalYear = now.year
+                val today = now.toEpochDay()
+                val doc = writer.postSalesInvoice(
+                    partyId = partyId,
+                    fiscalYear = fiscalYear,
+                    dateEpochDay = today,
+                    currency = currency,
+                    exchangeRate = exchangeRate,
+                    cardItems = cardItems,
+                    serviceItems = serviceItems,
+                    notes = notes
+                )
+                if (cashPaidMinor > 0L) {
+                    val allocAmount = minOf(cashPaidMinor, doc.totalMinor)
+                    writer.postCustomerReceipt(
+                        partyId = partyId,
+                        treasuryId = treasuryId,
+                        fiscalYear = fiscalYear,
+                        dateEpochDay = today,
+                        amountOrigMinor = cashPaidMinor,
+                        currency = currency,
+                        exchangeRate = exchangeRate,
+                        allocations = listOf(InvoiceAllocationSpec(doc.id, allocAmount)),
+                        notes = "سند قبض سداد/دفعة مقدمة لفاتورة مبيعات #${doc.docNumber}"
+                    )
+                }
+                _userMessage.emit("تم إصدار الفاتورة وخصم المخزن بنجاح")
+                refreshDashboard()
+                onSuccess()
+            } catch (e: Exception) {
+                _userMessage.emit("فشل إصدار الفاتورة: ${e.message}")
+            }
+        }
+    }
+
+    fun getCustomerReceivableBalances(onResult: (Map<String, Long>) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val rows = db.journalDao().getPartyBalancesForControlAccount(AccountConstants.ACCOUNTS_RECEIVABLE)
+                val map = rows.associate { it.partyId to (it.totalDebitMinor - it.totalCreditMinor) }
+                onResult(map)
+            } catch (e: Exception) {
+                onResult(emptyMap())
+            }
+        }
+    }
+
     fun postCustomerReceipt(
         partyId: String,
         treasuryId: String,

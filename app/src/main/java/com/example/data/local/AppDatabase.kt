@@ -151,13 +151,30 @@ abstract class AppDatabase : RoomDatabase() {
                     SELECT RAISE(ABORT, 'Journal lines are immutable and cannot be deleted');
                 END;
             """)
+
+            // Append-only currency rates trigger
+            db.execSQL("""
+                CREATE TRIGGER IF NOT EXISTS prevent_currency_rates_update
+                BEFORE UPDATE ON currency_rates
+                BEGIN
+                    SELECT RAISE(ABORT, 'currency_rates is append-only');
+                END;
+            """)
+
+            db.execSQL("""
+                CREATE TRIGGER IF NOT EXISTS prevent_currency_rates_delete
+                BEFORE DELETE ON currency_rates
+                BEGIN
+                    SELECT RAISE(ABORT, 'currency_rates is append-only');
+                END;
+            """)
         }
 
         fun seedDefaultData(db: SupportSQLiteDatabase) {
             // Seed Organization
             db.execSQL("""
-                INSERT OR IGNORE INTO organizations (id, name, taxNumber, functionalCurrency, fiscalYearStartMonth, isInitialized, createdAt)
-                VALUES ('DEFAULT_ORG', 'شبكة سام اللاسلكية', '', 'YER', 1, 1, strftime('%s','now') * 1000)
+                INSERT OR IGNORE INTO organizations (id, name, taxNumber, functionalCurrency, fiscalYearStartMonth, isInitialized, primaryRateZone, createdAt)
+                VALUES ('DEFAULT_ORG', 'شبكة سام اللاسلكية', '', 'YER', 1, 1, 'SANAA', strftime('%s','now') * 1000)
             """)
 
             // Seed Permanent Walk-in Cash Party
@@ -212,14 +229,24 @@ abstract class AppDatabase : RoomDatabase() {
                 VALUES ('TR_SAR_VAULT', 'خزينة الريال السعودي (SAR)', '1101', 'SAR', 1)
             """)
 
-            // Seed Exchange Rates (1 USD = 530 YER -> 530,000,000 micros; 1 SAR = 140 YER -> 140,000,000 micros)
+            // Seed Exchange Rates (Sana'a & Aden zones)
+            // Sana'a: 1 USD = 530 YER (530_000_000 micros), 1 SAR = 140 YER (140_000_000 micros)
             db.execSQL("""
-                INSERT OR IGNORE INTO currency_rates (id, fromCurrency, toCurrency, rateMicros, effectiveDateEpochDay, updatedAt)
-                VALUES ('RATE_USD_YER', 'USD', 'YER', 530000000, 20000, strftime('%s','now') * 1000)
+                INSERT OR IGNORE INTO currency_rates (id, currency, zone, rateMicros, effectiveDateEpochDay, createdAt, createdBy, reason)
+                VALUES ('RATE_USD_SANAA_INIT', 'USD', 'SANAA', 530000000, 0, strftime('%s','now') * 1000, 'SYSTEM', 'Initial Seed Rate');
             """)
             db.execSQL("""
-                INSERT OR IGNORE INTO currency_rates (id, fromCurrency, toCurrency, rateMicros, effectiveDateEpochDay, updatedAt)
-                VALUES ('RATE_SAR_YER', 'SAR', 'YER', 140000000, 20000, strftime('%s','now') * 1000)
+                INSERT OR IGNORE INTO currency_rates (id, currency, zone, rateMicros, effectiveDateEpochDay, createdAt, createdBy, reason)
+                VALUES ('RATE_SAR_SANAA_INIT', 'SAR', 'SANAA', 140000000, 0, strftime('%s','now') * 1000, 'SYSTEM', 'Initial Seed Rate');
+            """)
+            // Aden: 1 USD = 1600 YER (1_600_000_000 micros), 1 SAR = 420 YER (420_000_000 micros)
+            db.execSQL("""
+                INSERT OR IGNORE INTO currency_rates (id, currency, zone, rateMicros, effectiveDateEpochDay, createdAt, createdBy, reason)
+                VALUES ('RATE_USD_ADEN_INIT', 'USD', 'ADEN', 1600000000, 0, strftime('%s','now') * 1000, 'SYSTEM', 'Initial Seed Rate');
+            """)
+            db.execSQL("""
+                INSERT OR IGNORE INTO currency_rates (id, currency, zone, rateMicros, effectiveDateEpochDay, createdAt, createdBy, reason)
+                VALUES ('RATE_SAR_ADEN_INIT', 'SAR', 'ADEN', 420000000, 0, strftime('%s','now') * 1000, 'SYSTEM', 'Initial Seed Rate');
             """)
         }
     }

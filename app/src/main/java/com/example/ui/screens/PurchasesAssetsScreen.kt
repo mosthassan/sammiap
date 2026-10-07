@@ -470,6 +470,8 @@ fun PurchasesAssetsScreen(
         val vendorName = partyMap[inv.partyId]?.name ?: "مورد عام"
         val curr = CurrencyCode.fromString(inv.currency)
         val isVoided = inv.status == "VOIDED"
+        val detailScrollState = rememberScrollState()
+
         AlertDialog(
             onDismissRequest = { selectedInvoiceForDetail = null },
             title = {
@@ -478,14 +480,16 @@ fun PurchasesAssetsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("فاتورة مشتريات #${inv.docNumber}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("تفاصيل فاتورة المشتريات #${inv.docNumber}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     StatusChip(status = inv.status)
                 }
             },
             text = {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(detailScrollState)
                 ) {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -560,28 +564,35 @@ fun PurchasesAssetsScreen(
                                 )
                             }
                         }
-                    } else {
-                        HorizontalDivider()
-                        OutlinedButton(
-                            onClick = {
-                                invoiceToVoid = inv
-                                selectedInvoiceForDetail = null
-                            },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = SemanticExpenseRed),
-                            border = BorderStroke(1.dp, SemanticExpenseRed.copy(alpha = 0.7f)),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.fillMaxWidth().testTag("btn_void_purchase_invoice")
-                        ) {
-                            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("إلغاء / حذف الفاتورة بقيد عكسي (Void Invoice)", fontWeight = FontWeight.Bold)
-                        }
                     }
                 }
             },
             confirmButton = {
-                Button(onClick = { selectedInvoiceForDetail = null }) {
-                    Text("إغلاق")
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (!isVoided) {
+                        Button(
+                            onClick = {
+                                invoiceToVoid = inv
+                                selectedInvoiceForDetail = null
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = SemanticExpenseRed),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.testTag("btn_void_purchase_invoice")
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("إلغاء الفاتورة (Void)", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Button(
+                        onClick = { selectedInvoiceForDetail = null },
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("إغلاق")
+                    }
                 }
             }
         )
@@ -595,14 +606,17 @@ fun PurchasesAssetsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Delete, contentDescription = null, tint = SemanticExpenseRed)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("تأكيد إلغاء الفاتورة #${inv.docNumber}", color = SemanticExpenseRed, fontWeight = FontWeight.Bold)
+                    Text("إلغاء فاتورة المشتريات #${inv.docNumber}", color = SemanticExpenseRed, fontWeight = FontWeight.Bold)
                 }
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                ) {
                     Text(
-                        "وفق معايير المحاسبة الدولية (IFRS) والضبط المالي السليم:",
-                        fontWeight = FontWeight.Bold,
+                        "هل أنت متأكد من إلغاء هذه الفاتورة؟ سيتم عكس القيد المحاسبي في الأستاذ العام وتعديل أرصدة الصندوق والموردين والأصول آلياً.",
+                        fontWeight = FontWeight.SemiBold,
                         fontSize = 13.sp
                     )
                     Surface(
@@ -611,8 +625,8 @@ fun PurchasesAssetsScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("الأثر التلقائي للإلغاء:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MikroTikCyan)
-                            Text("1. عكس القيد المحاسبي: يتم ترحيل قيد يومية عكسي تعويضي فوري يعيد أرصدة المورد أو الصندوق وحساب الأصول إلى وضعها الصحيح تلقائياً قبل تسجيل الفاتورة.", fontSize = 11.sp)
+                            Text("الأثر التلقائي للإلغاء (IFRS):", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MikroTikCyan)
+                            Text("1. عكس القيد المحاسبي: يتم ترحيل قيد يومية عكسي تعويضي فوري يعيد أرصدة المورد أو الصندوق وحساب الأصول إلى وضعها الصحيح تلقائياً.", fontSize = 11.sp)
                             Text("2. إلغاء معدات الشبكة: يتم استبعاد وحذف أي أجهزة تم إنشاؤها بهذه الفاتورة تلقائياً من تبويب سجل الأصول لمنع تكرارها أو احتساب إهلاك لها.", fontSize = 11.sp)
                             Text("3. تصنيف الفاتورة كـ ملغية (VOIDED) لمنع أي تكرار مستقبلي.", fontSize = 11.sp)
                         }

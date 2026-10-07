@@ -24,6 +24,9 @@ object PostingRules {
         dateEpochDay: Long,
         memo: String
     ): JournalDraft {
+        require(currency == CurrencyCode.FUNCTIONAL || (exchangeRate.rateMicros > 0L && exchangeRate.toCurrency == CurrencyCode.FUNCTIONAL && exchangeRate.fromCurrency == currency && exchangeRate.rateMicros != ExchangeRate.SCALE_MICROS)) {
+            "Invalid foreign exchange rate supplied for functional ledger posting."
+        }
         require(cardTotalOrigMinor >= 0L && serviceTotalOrigMinor >= 0L) { "Revenue amounts must be non-negative" }
         val totalOrigMinor = cardTotalOrigMinor + serviceTotalOrigMinor
         require(totalOrigMinor > 0L) { "Invoice total must be strictly positive" }

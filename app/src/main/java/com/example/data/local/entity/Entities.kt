@@ -13,6 +13,7 @@ data class OrganizationEntity(
     val functionalCurrency: String = "YER",
     val fiscalYearStartMonth: Int = 1,
     val isInitialized: Boolean = false,
+    val primaryRateZone: String = "SANAA",
     val createdAt: Long = System.currentTimeMillis()
 )
 
@@ -66,15 +67,20 @@ data class FiscalPeriodEntity(
 
 @Entity(
     tableName = "currency_rates",
-    indices = [Index(value = ["fromCurrency", "toCurrency"])]
+    indices = [
+        Index(value = ["currency", "zone", "effectiveDateEpochDay"], unique = true),
+        Index(value = ["currency", "zone", "effectiveDateEpochDay", "createdAt"])
+    ]
 )
 data class CurrencyRateEntity(
     @PrimaryKey val id: String,
-    val fromCurrency: String,
-    val toCurrency: String,
+    val currency: String,
+    val zone: String = "SANAA", // SANAA | ADEN
     val rateMicros: Long,
     val effectiveDateEpochDay: Long,
-    val updatedAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val createdBy: String = "SYSTEM",
+    val reason: String = ""
 )
 
 @Entity(
@@ -95,6 +101,8 @@ data class DocumentEntity(
     val dateEpochDay: Long,
     val currency: String,
     val exchangeRateMicros: Long,
+    val rateZone: String = "SANAA",
+    val rateSource: String = "SYSTEM_DAILY",
     val totalMinor: Long,
     val totalBaseMinor: Long,
     val status: String, // DRAFT, POSTED, VOIDED

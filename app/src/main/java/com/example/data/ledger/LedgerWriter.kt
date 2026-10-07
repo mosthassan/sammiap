@@ -11,6 +11,9 @@ import com.example.core.ledger.PostingRules
 import com.example.core.ledger.PurchaseItemDraft
 import com.example.core.model.CurrencyCode
 import com.example.core.model.ExchangeRate
+import com.example.core.model.MissingExchangeRateException
+import com.example.core.model.RateSource
+import com.example.core.model.RateZone
 import com.example.core.model.UuidUtils
 import com.example.data.local.AppDatabase
 import com.example.data.local.entity.AllocationEntity
@@ -45,6 +48,8 @@ class LedgerWriter(
         cardItems: List<SalesItemSpec>,
         serviceItems: List<SalesItemSpec>,
         notes: String = "",
+        rateZone: RateZone = RateZone.DEFAULT,
+        rateSource: RateSource = RateSource.SYSTEM_DAILY,
         idempotencyKey: String? = null
     ): DocumentEntity = db.withTransaction {
         idempotencyKey?.let { key ->
@@ -55,6 +60,7 @@ class LedgerWriter(
         }
 
         validatePeriodIsOpen(dateEpochDay)
+        validateExchangeRateGuardrail(currency, exchangeRate)
 
         val cardTotalOrig = cardItems.sumOf { it.quantity * it.unitPriceMinor }
         val serviceTotalOrig = serviceItems.sumOf { it.quantity * it.unitPriceMinor }
@@ -73,6 +79,8 @@ class LedgerWriter(
             dateEpochDay = dateEpochDay,
             currency = currency.name,
             exchangeRateMicros = exchangeRate.rateMicros,
+            rateZone = rateZone.name,
+            rateSource = rateSource.name,
             totalMinor = totalOrig,
             totalBaseMinor = totalBase,
             status = DocumentStatus.POSTED.name,
@@ -165,6 +173,8 @@ class LedgerWriter(
         exchangeRate: ExchangeRate,
         allocations: List<InvoiceAllocationSpec> = emptyList(),
         notes: String = "",
+        rateZone: RateZone = RateZone.DEFAULT,
+        rateSource: RateSource = RateSource.SYSTEM_DAILY,
         idempotencyKey: String? = null
     ): DocumentEntity = db.withTransaction {
         idempotencyKey?.let { key ->
@@ -175,6 +185,7 @@ class LedgerWriter(
         }
 
         validatePeriodIsOpen(dateEpochDay)
+        validateExchangeRateGuardrail(currency, exchangeRate)
         val treasury = db.treasuryDao().getTreasuryById(treasuryId)
             ?: error("Treasury account $treasuryId not found")
 
@@ -218,6 +229,8 @@ class LedgerWriter(
             dateEpochDay = dateEpochDay,
             currency = currency.name,
             exchangeRateMicros = exchangeRate.rateMicros,
+            rateZone = rateZone.name,
+            rateSource = rateSource.name,
             totalMinor = amountOrigMinor,
             totalBaseMinor = totalBase,
             status = DocumentStatus.POSTED.name,
@@ -306,9 +319,12 @@ class LedgerWriter(
         currency: CurrencyCode,
         exchangeRate: ExchangeRate,
         notes: String = "",
+        rateZone: RateZone = RateZone.DEFAULT,
+        rateSource: RateSource = RateSource.SYSTEM_DAILY,
         idempotencyKey: String? = null
     ): DocumentEntity = db.withTransaction {
         validatePeriodIsOpen(dateEpochDay)
+        validateExchangeRateGuardrail(currency, exchangeRate)
         val treasury = db.treasuryDao().getTreasuryById(treasuryId)
             ?: error("Treasury account $treasuryId not found")
 
@@ -325,6 +341,8 @@ class LedgerWriter(
             dateEpochDay = dateEpochDay,
             currency = currency.name,
             exchangeRateMicros = exchangeRate.rateMicros,
+            rateZone = rateZone.name,
+            rateSource = rateSource.name,
             totalMinor = amountOrigMinor,
             totalBaseMinor = totalBase,
             status = DocumentStatus.POSTED.name,
@@ -368,9 +386,12 @@ class LedgerWriter(
         exchangeRate: ExchangeRate,
         usefulLifeMonths: Int = 36,
         notes: String = "",
+        rateZone: RateZone = RateZone.DEFAULT,
+        rateSource: RateSource = RateSource.SYSTEM_DAILY,
         idempotencyKey: String? = null
     ): DocumentEntity = db.withTransaction {
         validatePeriodIsOpen(dateEpochDay)
+        validateExchangeRateGuardrail(currency, exchangeRate)
         val docNumber = allocateNextDocNumber(DocumentType.RECEIPT_VOUCHER.name, fiscalYear)
         val docId = UuidUtils.newTimeOrderedId()
         val totalBase = exchangeRate.convert(amountOrigMinor)
@@ -384,6 +405,8 @@ class LedgerWriter(
             dateEpochDay = dateEpochDay,
             currency = currency.name,
             exchangeRateMicros = exchangeRate.rateMicros,
+            rateZone = rateZone.name,
+            rateSource = rateSource.name,
             totalMinor = amountOrigMinor,
             totalBaseMinor = totalBase,
             status = DocumentStatus.POSTED.name,
@@ -438,9 +461,12 @@ class LedgerWriter(
         exchangeRate: ExchangeRate,
         items: List<PurchaseItemSpec>,
         notes: String = "",
+        rateZone: RateZone = RateZone.DEFAULT,
+        rateSource: RateSource = RateSource.SYSTEM_DAILY,
         idempotencyKey: String? = null
     ): DocumentEntity = db.withTransaction {
         validatePeriodIsOpen(dateEpochDay)
+        validateExchangeRateGuardrail(currency, exchangeRate)
 
         val totalOrig = items.sumOf { it.totalMinor }
         val totalBase = exchangeRate.convert(totalOrig)
@@ -456,6 +482,8 @@ class LedgerWriter(
             dateEpochDay = dateEpochDay,
             currency = currency.name,
             exchangeRateMicros = exchangeRate.rateMicros,
+            rateZone = rateZone.name,
+            rateSource = rateSource.name,
             totalMinor = totalOrig,
             totalBaseMinor = totalBase,
             status = DocumentStatus.POSTED.name,
@@ -536,9 +564,12 @@ class LedgerWriter(
         customExpenseCode: String? = null,
         invoiceAllocations: List<InvoiceAllocationSpec> = emptyList(),
         notes: String = "",
+        rateZone: RateZone = RateZone.DEFAULT,
+        rateSource: RateSource = RateSource.SYSTEM_DAILY,
         idempotencyKey: String? = null
     ): DocumentEntity = db.withTransaction {
         validatePeriodIsOpen(dateEpochDay)
+        validateExchangeRateGuardrail(currency, exchangeRate)
         val treasury = db.treasuryDao().getTreasuryById(treasuryId)
             ?: error("Treasury account $treasuryId not found")
 
@@ -582,6 +613,8 @@ class LedgerWriter(
             dateEpochDay = dateEpochDay,
             currency = currency.name,
             exchangeRateMicros = exchangeRate.rateMicros,
+            rateZone = rateZone.name,
+            rateSource = rateSource.name,
             totalMinor = amountOrigMinor,
             totalBaseMinor = totalBase,
             status = DocumentStatus.POSTED.name,
@@ -668,9 +701,13 @@ class LedgerWriter(
         destRate: ExchangeRate,
         fiscalYear: Int,
         dateEpochDay: Long,
-        notes: String = ""
+        notes: String = "",
+        rateZone: RateZone = RateZone.DEFAULT,
+        rateSource: RateSource = RateSource.SYSTEM_DAILY
     ): DocumentEntity = db.withTransaction {
         validatePeriodIsOpen(dateEpochDay)
+        validateExchangeRateGuardrail(sourceCurrency, sourceRate)
+        validateExchangeRateGuardrail(destCurrency, destRate)
         val sourceTreasury = db.treasuryDao().getTreasuryById(sourceTreasuryId) ?: error("Source treasury not found")
         val destTreasury = db.treasuryDao().getTreasuryById(destTreasuryId) ?: error("Dest treasury not found")
 
@@ -687,6 +724,8 @@ class LedgerWriter(
             dateEpochDay = dateEpochDay,
             currency = sourceCurrency.name,
             exchangeRateMicros = sourceRate.rateMicros,
+            rateZone = rateZone.name,
+            rateSource = rateSource.name,
             totalMinor = sourceAmountOrigMinor,
             totalBaseMinor = baseMinor,
             status = DocumentStatus.POSTED.name,
@@ -993,9 +1032,12 @@ class LedgerWriter(
         amountOrigMinor: Long,
         returnPackageId: String? = null,
         returnQty: Int = 0,
-        notes: String = ""
+        notes: String = "",
+        rateZone: RateZone = RateZone.DEFAULT,
+        rateSource: RateSource = RateSource.SYSTEM_DAILY
     ): DocumentEntity = db.withTransaction {
         validatePeriodIsOpen(dateEpochDay)
+        validateExchangeRateGuardrail(currency, exchangeRate)
         val docNumber = allocateNextDocNumber(DocumentType.CREDIT_NOTE.name, fiscalYear)
         val docId = UuidUtils.newTimeOrderedId()
         val baseMinor = exchangeRate.convert(amountOrigMinor)
@@ -1009,6 +1051,8 @@ class LedgerWriter(
             dateEpochDay = dateEpochDay,
             currency = currency.name,
             exchangeRateMicros = exchangeRate.rateMicros,
+            rateZone = rateZone.name,
+            rateSource = rateSource.name,
             totalMinor = amountOrigMinor,
             totalBaseMinor = baseMinor,
             status = DocumentStatus.POSTED.name,
@@ -1149,7 +1193,8 @@ class LedgerWriter(
         actualCountMinor: Long,
         fiscalYear: Int,
         dateEpochDay: Long,
-        notes: String = ""
+        notes: String = "",
+        rateZone: RateZone = RateZone.DEFAULT
     ): DocumentEntity? = db.withTransaction {
         validatePeriodIsOpen(dateEpochDay)
         val treasury = db.treasuryDao().getTreasuryById(treasuryId) ?: error("Treasury $treasuryId not found")
@@ -1162,9 +1207,9 @@ class LedgerWriter(
         val rate = if (currency == CurrencyCode.FUNCTIONAL) {
             ExchangeRate.parity(CurrencyCode.FUNCTIONAL)
         } else {
-            val rateEntity = db.currencyRateDao().getRate(currency.name, CurrencyCode.FUNCTIONAL.name)
+            val rateEntity = db.currencyRateDao().getLatestRate(currency.name, rateZone.name, dateEpochDay)
             rateEntity?.let { ExchangeRate(currency, CurrencyCode.FUNCTIONAL, it.rateMicros) }
-                ?: ExchangeRate.parity(currency)
+                ?: throw MissingExchangeRateException(currency, rateZone, dateEpochDay)
         }
 
         val docNumber = allocateNextDocNumber("CASH_RECONCILIATION", fiscalYear)
@@ -1385,6 +1430,19 @@ class LedgerWriter(
         val period = db.fiscalPeriodDao().getPeriod(year, month)
         if (period != null && period.isClosed) {
             throw IllegalStateException("Fiscal period $year/$month is closed. Cannot post or modify entries.")
+        }
+    }
+
+    private fun validateExchangeRateGuardrail(currency: CurrencyCode, exchangeRate: ExchangeRate) {
+        require(
+            currency == CurrencyCode.FUNCTIONAL || (
+                exchangeRate.rateMicros > 0L &&
+                exchangeRate.toCurrency == CurrencyCode.FUNCTIONAL &&
+                exchangeRate.fromCurrency == currency &&
+                exchangeRate.rateMicros != ExchangeRate.SCALE_MICROS
+            )
+        ) {
+            "Invalid foreign exchange rate supplied for functional ledger posting."
         }
     }
 

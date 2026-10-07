@@ -482,20 +482,40 @@ interface NumberSequenceDao {
 
 @Dao
 interface CurrencyRateDao {
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertRate(rate: CurrencyRateEntity)
 
-    @Query("UPDATE currency_rates SET rateMicros = :rateMicros, updatedAt = :updatedAt WHERE fromCurrency = :fromCurrency AND toCurrency = :toCurrency")
-    suspend fun updateRate(fromCurrency: String, toCurrency: String, rateMicros: Long, updatedAt: Long)
+    @Query("""
+        SELECT * FROM currency_rates 
+        WHERE currency = :currency AND zone = :zone AND effectiveDateEpochDay <= :dateEpochDay
+        ORDER BY effectiveDateEpochDay DESC, createdAt DESC 
+        LIMIT 1
+    """)
+    suspend fun getLatestRate(currency: String, zone: String, dateEpochDay: Long): CurrencyRateEntity?
 
-    @Query("SELECT * FROM currency_rates WHERE fromCurrency = :fromCurrency AND toCurrency = :toCurrency")
-    suspend fun getRate(fromCurrency: String, toCurrency: String): CurrencyRateEntity?
+    @Query("""
+        SELECT * FROM currency_rates 
+        WHERE currency = :currency AND zone = :zone
+        ORDER BY effectiveDateEpochDay DESC, createdAt DESC 
+        LIMIT 1
+    """)
+    suspend fun getLatestRateForZone(currency: String, zone: String): CurrencyRateEntity?
 
-    @Query("SELECT * FROM currency_rates")
+    @Query("""
+        SELECT * FROM currency_rates 
+        WHERE currency = :currency AND zone = :zone AND effectiveDateEpochDay = :dateEpochDay
+        LIMIT 1
+    """)
+    suspend fun getExactRate(currency: String, zone: String, dateEpochDay: Long): CurrencyRateEntity?
+
+    @Query("SELECT * FROM currency_rates ORDER BY effectiveDateEpochDay DESC, createdAt DESC")
     fun getAllRatesFlow(): Flow<List<CurrencyRateEntity>>
 
-    @Query("SELECT * FROM currency_rates")
+    @Query("SELECT * FROM currency_rates ORDER BY effectiveDateEpochDay DESC, createdAt DESC")
     suspend fun getAllRatesSync(): List<CurrencyRateEntity>
+
+    @Query("SELECT * FROM currency_rates WHERE zone = :zone ORDER BY effectiveDateEpochDay DESC, createdAt DESC")
+    fun getRatesByZoneFlow(zone: String): Flow<List<CurrencyRateEntity>>
 }
 
 @Dao
